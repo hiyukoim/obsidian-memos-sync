@@ -18,7 +18,7 @@ function generateHeaderRegExp(header: string) {
 }
 
 export class DailyNoteModifier {
-	constructor(private dailyMemosHeader: string) {}
+	constructor(private dailyMemosHeader: string) { }
 
 	/**
 	 * Daily Notes will be:
@@ -61,16 +61,23 @@ export class DailyNoteModifier {
 			? localRecordContent.split(/\n(?=- )/g)
 			: [];
 
-		// record on memos, has timestamp
-		const existedRecordList: Record<string, string> = {}; // map<timestamp, record>
+		// MoeMemos records with timestamp identifier (^timestamp)
+		const moeMemosRecords: Record<string, string> = {}; // map<timestamp, record>
+		// Thino and other platform memos (without MoeMemos timestamp format)
+		const otherPlatformMemos: string[] = [];
 
 		for (const record of localRecordList) {
-			const regMatch = record.match(/.*\^(\d{10})/);
-			const createdTs = regMatch?.length ? regMatch[1]?.trim() : "";
+			// Check for MoeMemos format (has ^timestamp at the end)
+			const moeMemosMatch = record.match(/.*\^(\d{10})/);
+			// Check for Thino format (starts with bullet point and time)
+			const thinoOrOtherFormatMatch = record.match(/^- \d{1,2}:\d{2}/);
 
-			// put records in daily memos into different categories
-			if (createdTs) {
-				existedRecordList[createdTs] = record;
+			if (moeMemosMatch?.length) {
+				const createdTs = moeMemosMatch[1]?.trim();
+				moeMemosRecords[createdTs] = record;
+			} else if (thinoOrOtherFormatMatch && !moeMemosMatch?.length) {
+				// This is a Thino memo or other platform memo that doesn't have MoeMemos timestamp format
+				otherPlatformMemos.push(record);
 			}
 		}
 
@@ -81,21 +88,25 @@ export class DailyNoteModifier {
 				prefix,
 				suffix,
 				localRecordList,
-				existedRecordList,
+				moeMemosRecords,
+				otherPlatformMemos,
 			})}`,
 		);
 
-		const sortedRecordList = Object.entries({
-			...existedRecordList,
+		// Process MoeMemos records
+		const sortedMoeMemosRecords = Object.entries({
+			...moeMemosRecords,
 			...fetchedRecordList,
 		})
 			.sort((a, b) => Number(a[0]) - Number(b[0]))
-			.map((item) => item[1])
-			.join("\n");
+			.map((item) => item[1]);
+
+		// Combine MoeMemos records with Thino and other platform memos
+		const allMemosCombined = [...sortedMoeMemosRecords, ...otherPlatformMemos].join("\n");
 
 		const modifiedFileContent =
 			prefix.trim() +
-			`\n\n${sortedRecordList}\n\n` +
+			`\n\n${allMemosCombined}\n\n` +
 			suffix.trim() +
 			`\n`;
 
