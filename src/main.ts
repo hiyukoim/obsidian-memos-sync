@@ -35,6 +35,16 @@ function stringifyTagFolderRules(
 	return rules.map((r) => `${r.tag}: ${r.folder}`).join("\n");
 }
 
+// Comma-separated folder list. Strips leading/trailing slashes and whitespace.
+function parseFolderList(raw: string): string[] {
+	const seen = new Set<string>();
+	for (const part of raw.split(",")) {
+		const folder = part.trim().replace(/^\/+|\/+$/g, "");
+		if (folder) seen.add(folder);
+	}
+	return Array.from(seen);
+}
+
 const MEMOS_SYNC_DEFAULT_SETTINGS: MemosSyncPluginSettings = {
 	dailyMemosHeader: "Memos",
 	memosAPIVersion: "v0.19.1",
@@ -46,6 +56,7 @@ const MEMOS_SYNC_DEFAULT_SETTINGS: MemosSyncPluginSettings = {
 	outputMode: "daily-note",
 	perMemoFolder: "Memos",
 	tagFolderRules: [],
+	scanFolders: [],
 };
 
 export default class MemosSyncPlugin extends Plugin {
@@ -79,17 +90,17 @@ export default class MemosSyncPlugin extends Plugin {
 		this.dailyMemos = new DailyMemos(this.app, this.settings);
 		this.addCommand({
 			id: "memos-sync-daily-memos",
-			name: "Sync daily memos",
+			name: "Sync memos",
 			callback: this.dailyMemos.sync,
 		});
 		this.addCommand({
 			id: "memos-force-sync-daily-memos",
-			name: "Force sync daily memos",
+			name: "Force sync memos",
 			callback: this.dailyMemos.forceSync,
 		});
 		this.addCommand({
 			id: "memos-sync-force-current-daily-memos",
-			name: "Force sync current daily memos",
+			name: "Force sync today's memos",
 			callback: this.dailyMemos.syncForCurrentFile,
 		});
 		// timeout
@@ -119,7 +130,9 @@ class MemosSyncSettingTab extends PluginSettingTab {
 	display(): void {
 		this.containerEl.empty();
 		const dailyNotesEnabled = appHasDailyNotesPluginLoaded();
-		if (!dailyNotesEnabled) {
+		const usesDailyNotes =
+			(this.plugin.settings.outputMode ?? "daily-note") === "daily-note";
+		if (usesDailyNotes && !dailyNotesEnabled) {
 			this.containerEl.createEl("h3", {
 				text: "Attention: Daily Notes is not enabled.",
 				attr: {
@@ -215,6 +228,25 @@ class MemosSyncSettingTab extends PluginSettingTab {
 					textarea.onChange((value) => {
 						this.saveSettings({
 							tagFolderRules: parseTagFolderRules(value),
+						});
+					});
+				});
+
+			new Setting(this.containerEl)
+				.setName("Scan folders")
+				.setDesc(
+					"Comma-separated folders (with descendants) to scan for existing memo files by frontmatter memo_id. Existing files are updated in place wherever they live inside scope — routing folders only affect where NEW memos land. Leave empty to auto-scan the Default folder and all routing folders.",
+				)
+				.addText((textfield) => {
+					textfield.setPlaceholder(
+						"e.g. Memos, Archive, Projects/Notes",
+					);
+					textfield.setValue(
+						this.plugin.settings.scanFolders.join(", "),
+					);
+					textfield.onChange((value) => {
+						this.saveSettings({
+							scanFolders: parseFolderList(value),
 						});
 					});
 				});

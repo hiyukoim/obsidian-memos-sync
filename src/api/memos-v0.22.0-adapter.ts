@@ -11,6 +11,7 @@ export type Resource = {
 };
 
 export type Memo = {
+	name?: string; // "memos/<uid>" — used to build memo_url
 	content: string;
 	createTime?: Date | undefined;
 	updateTime?: Date | undefined;

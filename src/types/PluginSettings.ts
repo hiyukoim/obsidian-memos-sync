@@ -43,4 +43,10 @@ export interface MemosSyncPluginSettings {
 	 * Only applies when outputMode === "per-memo-file".
 	 */
 	tagFolderRules: Array<{ tag: string; folder: string }>;
+	/**
+	 * Folders (and their descendants) to scan when locating existing memo files
+	 * by frontmatter memo_id. Used to respect manual moves.
+	 * Empty = auto-derive from perMemoFolder + tagFolderRules folders.
+	 */
+	scanFolders: string[];
 }

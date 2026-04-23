@@ -24,6 +24,11 @@ type APIMemo = {
 	 * for generating file link
 	 */
 	resources?: APIResource[];
+	/**
+	 * Server-side memo identifier (e.g. "abc123" extracted from `memos/abc123`).
+	 * Used to build memo_url. Absent on v0.19.1.
+	 */
+	uid?: string;
 };
 
 type MdItemMemo = {
@@ -32,6 +37,7 @@ type MdItemMemo = {
 	rendered: string; // daily-note bullet form
 	rawContent: string; // original memo body (no mutations)
 	resourceLines: string[]; // markdown links for per-memo output
+	uid?: string;
 };
 
 // Shape surfaced to downstream code (daily-note modifier & per-memo writer).
@@ -41,7 +47,16 @@ export type MemoItem = {
 	rawContent: string;
 	resourceLines: string[];
 	tags: string[];
+	uid?: string;
 };
+
+// "memos/abc123" -> "abc123". Accepts just "abc123" too. Returns undefined for empty input.
+export function extractMemoUid(name?: string): string | undefined {
+	if (!name) return undefined;
+	const parts = name.split("/");
+	const last = parts[parts.length - 1];
+	return last || undefined;
+}
 
 /**
  * transformAPIToMdItemMemo
@@ -50,7 +65,7 @@ export type MemoItem = {
  * @param param APIMemoParam
  */
 function transformAPIToMdItemMemo(param: APIMemo): MdItemMemo {
-	const { timestamp, content, resources } = param;
+	const { timestamp, content, resources, uid } = param;
 	const [date, time] = window
 		.moment(timestamp * 1000)
 		.format("YYYY-MM-DD HH:mm")
@@ -97,6 +112,7 @@ function transformAPIToMdItemMemo(param: APIMemo): MdItemMemo {
 		rendered: finalTargetContent,
 		rawContent: content,
 		resourceLines,
+		uid,
 	};
 }
 
@@ -216,6 +232,7 @@ export class MemosPaginator0191 {
 				rawContent: mdItemMemo.rawContent,
 				resourceLines: mdItemMemo.resourceLines,
 				tags: memoTags,
+				uid: mdItemMemo.uid,
 			};
 		}
 		return dailyMemosByDay;
@@ -339,6 +356,7 @@ export class MemosPaginator0220 {
 				timestamp: window.moment(memo.createTime).unix(),
 				content: memo.content,
 				resources: resources,
+				uid: extractMemoUid(memo.name),
 			});
 
 			if (!dailyMemosByDay[mdItemMemo.date]) {
@@ -351,6 +369,7 @@ export class MemosPaginator0220 {
 				rawContent: mdItemMemo.rawContent,
 				resourceLines: mdItemMemo.resourceLines,
 				tags: memoTags,
+				uid: mdItemMemo.uid,
 			};
 		}
 		return dailyMemosByDay;
@@ -482,6 +501,7 @@ export class MemosPaginator0261 {
 				timestamp: window.moment(memo.createTime).unix(),
 				content: memo.content,
 				resources,
+				uid: extractMemoUid(memo.name),
 			});
 
 			if (!dailyMemosByDay[mdItemMemo.date]) {
@@ -493,6 +513,7 @@ export class MemosPaginator0261 {
 				rawContent: mdItemMemo.rawContent,
 				resourceLines: mdItemMemo.resourceLines,
 				tags: memoTags,
+				uid: mdItemMemo.uid,
 			};
 		}
 		return dailyMemosByDay;
