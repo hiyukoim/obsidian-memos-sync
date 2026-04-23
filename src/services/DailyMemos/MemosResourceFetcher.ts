@@ -134,20 +134,29 @@ export class MemosResourceFetcher0261 {
 	) {}
 
 	listResources = async (): Promise<APIResource[] | undefined> => {
+		const url = `${this.apiUrl}/api/v1/attachments`;
 		try {
 			const res = await requestUrl({
-				url: `${this.apiUrl}/memos.api.v1.AttachmentService/ListAttachments`,
-				method: "POST",
+				url,
+				method: "GET",
 				headers: {
-					"Content-Type": "application/json",
+					Accept: "application/json",
 					Authorization: `Bearer ${this.token}`,
 				},
-				body: JSON.stringify({}),
+				throw: false,
 			});
+			const contentType = res.headers?.["content-type"] ?? res.headers?.["Content-Type"] ?? "";
+			if (res.status !== 200 || !contentType.includes("application/json")) {
+				const bodySnippet = (res.text ?? "").slice(0, 200);
+				log.error(
+					`listResources: unexpected response — status=${res.status} content-type=${contentType} url=${url} body=${bodySnippet}`
+				);
+				return undefined;
+			}
 			const data = res.json;
 			return (data.attachments || []).map(convert0220ResourceToAPIResource);
 		} catch (error) {
-			log.error(`Failed to list attachments via REST: ${error}`);
+			log.error(`Failed to list attachments via REST: ${error} url=${url}`);
 			return undefined;
 		}
 	};
@@ -155,19 +164,28 @@ export class MemosResourceFetcher0261 {
 	fetchResource = async (
 		resource: APIResource
 	): Promise<ArrayBuffer | undefined> => {
+		// v0.26.0 removed GetAttachmentBinary gRPC method.
+		// Use HTTP endpoint /file/{name}/{filename} which still exists.
+		const url = `${this.apiUrl}/file/${resource.name}/${encodeURIComponent(resource.filename)}`;
 		try {
-			// v0.26.0 removed GetAttachmentBinary gRPC method.
-			// Use HTTP endpoint /file/{name}/{filename} which still exists.
-			const url = `${this.apiUrl}/file/${resource.name}/${encodeURIComponent(resource.filename)}`;
 			const res = await requestUrl({
 				url,
 				headers: {
 					Authorization: `Bearer ${this.token}`,
 				},
+				throw: false,
 			});
+			if (res.status !== 200) {
+				const contentType = res.headers?.["content-type"] ?? res.headers?.["Content-Type"] ?? "";
+				const bodySnippet = (res.text ?? "").slice(0, 200);
+				log.error(
+					`fetchResource: unexpected response — status=${res.status} content-type=${contentType} url=${url} body=${bodySnippet}`
+				);
+				return undefined;
+			}
 			return res.arrayBuffer;
 		} catch (error) {
-			log.error(`Failed to fetch resource binary: ${error}`);
+			log.error(`Failed to fetch resource binary: ${error} url=${url}`);
 			return undefined;
 		}
 	};
