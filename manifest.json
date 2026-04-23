@@ -1,10 +1,10 @@
 {
-	"id": "memos-sync",
-	"name": "Memos Sync",
-	"version": "0.6.2",
+	"id": "memos-sync-plus",
+	"name": "Memos Sync Plus",
+	"version": "0.7.0",
 	"minAppVersion": "1.5.12",
-	"description": "Syncing memos from a [Memos](https://github.com/usememos/memos) server to your daily note. Fully compatible with official Daily Notes plugin, Calendar plugin and Periodic Notes plugin.",
-	"author": "RyoJerryYu",
-	"authorUrl": "https://github.com/RyoJerryYu",
+	"description": "Sync memos from a Memos server to Obsidian with tag filter, per-memo-file output, and tag-based folder routing. Fork of memos-sync.",
+	"author": "hiyukoim",
+	"authorUrl": "https://github.com/hiyukoim",
 	"isDesktopOnly": true
 }

@@ -1,6 +1,6 @@
-# Obsidian Memos Sync (Fork)
+# Memos Sync Plus
 
-This is a fork of [RyoJerryYu/obsidian-memos-sync](https://github.com/RyoJerryYu/obsidian-memos-sync) with additional features for tag-based filtering and routing.
+A fork of [RyoJerryYu/obsidian-memos-sync](https://github.com/RyoJerryYu/obsidian-memos-sync) with additional features for tag-based filtering and routing.
 
 Syncs memos from a [Memos](https://github.com/usememos/memos) server into your Obsidian vault.
 

@@ -1,7 +1,7 @@
 {
-	"name": "obsidian-memos-sync",
-	"version": "0.6.2",
-	"description": "Syncing Memos to Obsidian daily note.",
+	"name": "obsidian-memos-sync-plus",
+	"version": "0.7.0",
+	"description": "Fork of memos-sync with tag filter, per-memo-file output, and tag folder routing.",
 	"main": "main.js",
 	"scripts": {
 		"dev": "node esbuild.config.mjs",
