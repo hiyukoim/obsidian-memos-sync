@@ -13,7 +13,7 @@ export function convert0220ResourceToAPIResource(
 	resource: Resource
 ): APIResource {
 	return {
-		id: resource.name.replace("resources/", ""),
+		id: resource.name.replace(/^(resources|attachments)\//, ""),
 		filename: resource.filename,
 		externalLink: resource.externalLink,
 		name: resource.name,
@@ -23,7 +23,7 @@ export function convert0220ResourceToAPIResource(
 }
 
 export function generateResourceName(resource: APIResource): string {
-	return `${resource.id}-${resource.filename.replace(/[/\\?%*:|"<>]/g, "-")}`;
+	return `${resource.id}-${resource.filename.replace(/[\/\\\?%\*:\|"<>]/g, "-")}`;
 }
 
 export function generateResourceLink(resource: APIResource): string {
@@ -33,7 +33,5 @@ export function generateResourceLink(resource: APIResource): string {
 
 	const prefix = resource.type?.includes("image") ? "!" : ""; // only add ! for image type
 
-	return `${prefix}[${resource.name || resource.filename}](${
-		resource.externalLink
-	})`;
+	return `${prefix}[${resource.name || resource.filename}](${resource.externalLink})`;
 }

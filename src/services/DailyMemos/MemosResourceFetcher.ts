@@ -136,13 +136,12 @@ export class MemosResourceFetcher0261 {
 	listResources = async (): Promise<APIResource[] | undefined> => {
 		try {
 			const res = await requestUrl({
-				url: `${this.apiUrl}/memos.api.v1.AttachmentService/ListAttachments`,
-				method: "POST",
+				url: `${this.apiUrl}/api/v1/attachments`,
+				method: "GET",
 				headers: {
-					"Content-Type": "application/json",
+					Accept: "application/json",
 					Authorization: `Bearer ${this.token}`,
 				},
-				body: JSON.stringify({}),
 			});
 			const data = res.json;
 			return (data.attachments || []).map(convert0220ResourceToAPIResource);

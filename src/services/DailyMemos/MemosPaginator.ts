@@ -356,7 +356,6 @@ export class MemosPaginator0261 {
 		this.pageToken = "";
 		while (true) {
 			const resp = await this.listMemosREST(this.pageSize, this.pageToken);
-			log.debug(`REST resp for pageToken ${this.pageToken}: ${JSON.stringify(resp)}`);
 			if (!resp || !resp.memos || !resp.memos.length) {
 				log.debug("No new daily memos found.");
 				this.lastTime = Date.now().toString();
@@ -396,15 +395,17 @@ export class MemosPaginator0261 {
 	};
 
 	private listMemosREST = async (pageSize: number, pageToken: string) => {
+		const params = new URLSearchParams({ pageSize: String(pageSize) });
+		if (pageToken) params.set("pageToken", pageToken);
+		const url = `${this.apiUrl}/api/v1/memos?${params.toString()}`;
 		try {
 			const res = await requestUrl({
-				url: `${this.apiUrl}/memos.api.v1.MemoService/ListMemos`,
-				method: "POST",
+				url,
+				method: "GET",
 				headers: {
-					"Content-Type": "application/json",
+					Accept: "application/json",
 					Authorization: `Bearer ${this.token}`,
 				},
-				body: JSON.stringify({ pageSize, pageToken }),
 			});
 			return res.json;
 		} catch (error) {
