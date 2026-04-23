@@ -13,6 +13,7 @@ import { DailyNoteModifier } from "./DailyNoteModifier";
 import { MemosResourceFetcher } from "./MemosResourceFetcher";
 import { generateResourceName } from "./MemosResource";
 import { MemosAbstractFactory } from "./MemosVersionFactory";
+import { PerMemoFileWriter } from "./PerMemoFileWriter";
 
 class DailyNoteManager {
 	private allDailyNotes: Record<string, TFile>;
@@ -175,37 +176,50 @@ export class DailyMemos {
 	};
 
 	private insertDailyMemos = async (memosPaginator: MemosPaginator) => {
+		const mode = this.settings.outputMode ?? "daily-note";
+		const lastTime =
+			mode === "per-memo-file"
+				? await this.writePerMemoFiles(memosPaginator)
+				: await this.writeDailyNotes(memosPaginator);
+
+		log.info(`Synced daily memos, lastTime: ${lastTime}`);
+		window.localStorage.setItem(this.localKey, lastTime);
+	};
+
+	private writeDailyNotes = async (memosPaginator: MemosPaginator) => {
 		const dailyNoteManager = new DailyNoteManager();
 		const dailyNoteModifier = new DailyNoteModifier(
 			this.settings.dailyMemosHeader,
 		);
-		const lastTime = await memosPaginator.foreach(
-			async ([today, dailyMemosForToday]) => {
-				const momentDay = window.moment(today);
+		return memosPaginator.foreach(async ([today, dailyMemosForToday]) => {
+			const momentDay = window.moment(today);
 
-				const targetFile = await dailyNoteManager.getOrCreateDailyNote(
-					momentDay,
+			const targetFile = await dailyNoteManager.getOrCreateDailyNote(
+				momentDay,
+			);
+
+			await this.app.vault.process(targetFile, (originFileContent) => {
+				const modifiedFileContent = dailyNoteModifier.modifyDailyNote(
+					originFileContent,
+					today,
+					dailyMemosForToday,
 				);
 
-				// read daily note, modify the memos list
-				await this.app.vault.process(targetFile, (originFileContent) => {
-					const modifiedFileContent =
-						dailyNoteModifier.modifyDailyNote(
-							originFileContent,
-							today,
-							dailyMemosForToday,
-						);
+				if (!modifiedFileContent) {
+					return originFileContent;
+				}
 
-					if (!modifiedFileContent) {
-						return originFileContent;
-					}
+				return modifiedFileContent;
+			});
+		});
+	};
 
-					return modifiedFileContent;
-				});
-			},
-		);
-
-		log.info(`Synced daily memos, lastTime: ${lastTime}`);
-		window.localStorage.setItem(this.localKey, lastTime);
+	private writePerMemoFiles = async (memosPaginator: MemosPaginator) => {
+		const writer = new PerMemoFileWriter(this.app, this.settings);
+		return memosPaginator.foreach(async ([, dailyMemosForToday]) => {
+			for (const item of Object.values(dailyMemosForToday)) {
+				await writer.writeMemo(item);
+			}
+		});
 	};
 }

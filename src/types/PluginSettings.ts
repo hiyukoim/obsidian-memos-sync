@@ -19,4 +19,28 @@ export interface MemosSyncPluginSettings {
 	 * Usememos token.
 	 */
 	memosAPIToken: string;
+	/**
+	 * Only sync memos that have at least one of these tags (case-insensitive, no leading #).
+	 * Empty array = no include restriction.
+	 */
+	includeTags: string[];
+	/**
+	 * Skip memos that have any of these tags. Applied before includeTags.
+	 */
+	excludeTags: string[];
+	/**
+	 * Where synced memos land.
+	 *  - "daily-note": append to the daily note under the configured header (legacy)
+	 *  - "per-memo-file": one markdown file per memo, routed by tag rules
+	 */
+	outputMode: "daily-note" | "per-memo-file";
+	/**
+	 * Default folder for per-memo-file mode when no tag rule matches.
+	 */
+	perMemoFolder: string;
+	/**
+	 * Tag -> folder routing rules. Evaluated in order, first match wins.
+	 * Only applies when outputMode === "per-memo-file".
+	 */
+	tagFolderRules: Array<{ tag: string; folder: string }>;
 }

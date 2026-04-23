@@ -1,4 +1,5 @@
 import * as log from "@/utils/log";
+import { MemoItem } from "./MemosPaginator";
 
 /**
  * Generates a regular expression for matching a header in a daily note.
@@ -38,7 +39,7 @@ export class DailyNoteModifier {
 	modifyDailyNote = (
 		originFileContent: string,
 		today: string,
-		fetchedRecordList: Record<string, string>,
+		fetchedRecordList: Record<string, MemoItem>,
 	) => {
 		const header = this.dailyMemosHeader;
 		const reg = generateHeaderRegExp(header);
@@ -85,9 +86,14 @@ export class DailyNoteModifier {
 			})}`,
 		);
 
+		const fetchedRendered: Record<string, string> = {};
+		for (const [ts, item] of Object.entries(fetchedRecordList)) {
+			fetchedRendered[ts] = item.rendered;
+		}
+
 		const sortedRecordList = Object.entries({
 			...existedRecordList,
-			...fetchedRecordList,
+			...fetchedRendered,
 		})
 			.sort((a, b) => Number(a[0]) - Number(b[0]))
 			.map((item) => item[1])

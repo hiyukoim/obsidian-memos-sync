@@ -7,6 +7,7 @@ import {
 	convert0220ResourceToAPIResource,
 	generateResourceLink,
 } from "./MemosResource";
+import { extractTags, shouldIncludeByTags } from "./TagFilter";
 
 type APIMemo = {
 	/**
@@ -28,7 +29,18 @@ type APIMemo = {
 type MdItemMemo = {
 	date: string; // date for which daily memo to place
 	timestamp: string; // timestamp for identifying the memo
-	content: string; // content of the memo
+	rendered: string; // daily-note bullet form
+	rawContent: string; // original memo body (no mutations)
+	resourceLines: string[]; // markdown links for per-memo output
+};
+
+// Shape surfaced to downstream code (daily-note modifier & per-memo writer).
+export type MemoItem = {
+	timestamp: string;
+	rendered: string;
+	rawContent: string;
+	resourceLines: string[];
+	tags: string[];
 };
 
 /**
@@ -68,14 +80,13 @@ function transformAPIToMdItemMemo(param: APIMemo): MdItemMemo {
 				.join("\n")
 				.trimEnd()
 		: "";
-	const targetResourceLine = resources?.length // 资源文件
-		? "\n" +
-		  resources
-				?.map(
-					(resource: APIResource) =>
-						`\t- ${generateResourceLink(resource)}`
-				)
-				.join("\n")
+	const resourceLines = resources?.length
+		? resources.map(
+				(resource: APIResource) => generateResourceLink(resource)
+		  )
+		: [];
+	const targetResourceLine = resourceLines.length
+		? "\n" + resourceLines.map((link) => `\t- ${link}`).join("\n")
 		: "";
 	const finalTargetContent =
 		targetFirstLine + targetOtherLine + targetResourceLine;
@@ -83,7 +94,9 @@ function transformAPIToMdItemMemo(param: APIMemo): MdItemMemo {
 	return {
 		date,
 		timestamp: String(timestamp),
-		content: finalTargetContent,
+		rendered: finalTargetContent,
+		rawContent: content,
+		resourceLines,
 	};
 }
 
@@ -91,7 +104,7 @@ export type MemosPaginator = {
 	foreach: (
 		handle: ([today, dailyMemosForToday]: [
 			string, // date, format "YYYY-MM-DD"
-			Record<string, string> // daily memos for today, map<timestamp, content>
+			Record<string, MemoItem> // daily memos for today, map<timestamp, item>
 		]) => Promise<void>
 	) => Promise<string>;
 };
@@ -106,8 +119,10 @@ export class MemosPaginator0191 {
 		lastTime?: string,
 		private filter?: (
 			date: string,
-			dailyMemosForDate: Record<string, string>
-		) => boolean
+			dailyMemosForDate: Record<string, MemoItem>
+		) => boolean,
+		private includeTags: string[] = [],
+		private excludeTags: string[] = []
 	) {
 		this.limit = 50;
 		this.offset = 0;
@@ -122,7 +137,7 @@ export class MemosPaginator0191 {
 	foreach = async (
 		handle: ([today, dailyMemosForToday]: [
 			string, // date, format "YYYY-MM-DD"
-			Record<string, string> // daily memos for today, map<timestamp, content>
+			Record<string, MemoItem> // daily memos for today, map<timestamp, item>
 		]) => Promise<void>
 	) => {
 		this.offset = 0; // iterate from newest, reset offset
@@ -167,11 +182,16 @@ export class MemosPaginator0191 {
 	};
 
 	// generalize daily memos by day and timestamp
-	// map<date, map<timestamp, formattedRecord>>
+	// map<date, map<timestamp, MemoItem>>
 	private generalizeDailyMemos = (memos: DailyRecordType[]) => {
-		const dailyMemosByDay: Record<string, Record<string, string>> = {};
+		const dailyMemosByDay: Record<string, Record<string, MemoItem>> = {};
 		for (const memo of memos) {
 			if (!memo.content && !memo.resourceList?.length) {
+				continue;
+			}
+
+			const memoTags = extractTags(memo.content ?? "");
+			if (!shouldIncludeByTags(memoTags, this.includeTags, this.excludeTags)) {
 				continue;
 			}
 
@@ -190,8 +210,13 @@ export class MemosPaginator0191 {
 				dailyMemosByDay[mdItemMemo.date] = {};
 			}
 
-			dailyMemosByDay[mdItemMemo.date][mdItemMemo.timestamp] =
-				mdItemMemo.content;
+			dailyMemosByDay[mdItemMemo.date][mdItemMemo.timestamp] = {
+				timestamp: mdItemMemo.timestamp,
+				rendered: mdItemMemo.rendered,
+				rawContent: mdItemMemo.rawContent,
+				resourceLines: mdItemMemo.resourceLines,
+				tags: memoTags,
+			};
 		}
 		return dailyMemosByDay;
 	};
@@ -208,8 +233,10 @@ export class MemosPaginator0220 {
 		lastTime?: string,
 		private filter?: (
 			date: string,
-			dailyMemosForDate: Record<string, string>
-		) => boolean
+			dailyMemosForDate: Record<string, MemoItem>
+		) => boolean,
+		private includeTags: string[] = [],
+		private excludeTags: string[] = []
 	) {
 		this.pageSize = 50;
 		this.pageToken = "";
@@ -224,7 +251,7 @@ export class MemosPaginator0220 {
 	foreach = async (
 		handle: ([today, dailyMemosForToday]: [
 			string, // date, format "YYYY-MM-DD"
-			Record<string, string> // daily memos for today, map<timestamp, content>
+			Record<string, MemoItem> // daily memos for today, map<timestamp, item>
 		]) => Promise<void>
 	) => {
 		// because memos pagination is from newest to oldest
@@ -291,11 +318,16 @@ export class MemosPaginator0220 {
 	};
 
 	// generalize daily memos by day and timestamp
-	// map<date, map<timestamp, formattedRecord>>
+	// map<date, map<timestamp, MemoItem>>
 	private generalizeDailyMemos = (memos: Memo[]) => {
-		const dailyMemosByDay: Record<string, Record<string, string>> = {};
+		const dailyMemosByDay: Record<string, Record<string, MemoItem>> = {};
 		for (const memo of memos) {
 			if (!memo.content && !memo.resources?.length) {
+				continue;
+			}
+
+			const memoTags = extractTags(memo.content ?? "");
+			if (!shouldIncludeByTags(memoTags, this.includeTags, this.excludeTags)) {
 				continue;
 			}
 
@@ -313,8 +345,13 @@ export class MemosPaginator0220 {
 				dailyMemosByDay[mdItemMemo.date] = {};
 			}
 
-			dailyMemosByDay[mdItemMemo.date][mdItemMemo.timestamp] =
-				mdItemMemo.content;
+			dailyMemosByDay[mdItemMemo.date][mdItemMemo.timestamp] = {
+				timestamp: mdItemMemo.timestamp,
+				rendered: mdItemMemo.rendered,
+				rawContent: mdItemMemo.rawContent,
+				resourceLines: mdItemMemo.resourceLines,
+				tags: memoTags,
+			};
 		}
 		return dailyMemosByDay;
 	};
@@ -339,8 +376,10 @@ export class MemosPaginator0261 {
 		lastTime?: string,
 		private filter?: (
 			date: string,
-			dailyMemosForDate: Record<string, string>
-		) => boolean
+			dailyMemosForDate: Record<string, MemoItem>
+		) => boolean,
+		private includeTags: string[] = [],
+		private excludeTags: string[] = []
 	) {
 		this.pageSize = 50;
 		this.pageToken = "";
@@ -350,7 +389,7 @@ export class MemosPaginator0261 {
 	foreach = async (
 		handle: ([today, dailyMemosForToday]: [
 			string,
-			Record<string, string>
+			Record<string, MemoItem>
 		]) => Promise<void>
 	) => {
 		this.pageToken = "";
@@ -424,9 +463,14 @@ export class MemosPaginator0261 {
 	};
 
 	private generalizeDailyMemos = (memos: Memo[]) => {
-		const dailyMemosByDay: Record<string, Record<string, string>> = {};
+		const dailyMemosByDay: Record<string, Record<string, MemoItem>> = {};
 		for (const memo of memos) {
 			if (!memo.content && !memo.attachments?.length) {
+				continue;
+			}
+
+			const memoTags = extractTags(memo.content ?? "");
+			if (!shouldIncludeByTags(memoTags, this.includeTags, this.excludeTags)) {
 				continue;
 			}
 
@@ -443,8 +487,13 @@ export class MemosPaginator0261 {
 			if (!dailyMemosByDay[mdItemMemo.date]) {
 				dailyMemosByDay[mdItemMemo.date] = {};
 			}
-			dailyMemosByDay[mdItemMemo.date][mdItemMemo.timestamp] =
-				mdItemMemo.content;
+			dailyMemosByDay[mdItemMemo.date][mdItemMemo.timestamp] = {
+				timestamp: mdItemMemo.timestamp,
+				rendered: mdItemMemo.rendered,
+				rawContent: mdItemMemo.rawContent,
+				resourceLines: mdItemMemo.resourceLines,
+				tags: memoTags,
+			};
 		}
 		return dailyMemosByDay;
 	};

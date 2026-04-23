@@ -1,5 +1,6 @@
 import { MemosSyncPluginSettings } from "@/types/PluginSettings";
 import {
+	MemoItem,
 	MemosPaginator,
 	MemosPaginator0191,
 	MemosPaginator0220,
@@ -58,7 +59,7 @@ export class MemosAbstractFactory {
 		lastTime?: string,
 		filter?: (
 			date: string,
-			dailyMemosForDate: Record<string, string>
+			dailyMemosForDate: Record<string, MemoItem>
 		) => boolean
 	): MemosPaginator => {
 		return this.inner.createMemosPaginator(lastTime, filter);
@@ -74,7 +75,7 @@ type MemosFactory = {
 		lastTime?: string,
 		filter?: (
 			date: string,
-			dailyMemosForDate: Record<string, string>
+			dailyMemosForDate: Record<string, MemoItem>
 		) => boolean
 	) => MemosPaginator;
 	createResourceFetcher: () => MemosResourceFetcher;
@@ -93,10 +94,16 @@ class MemosFactory0191 {
 		lastTime?: string,
 		filter?: (
 			date: string,
-			dailyMemosForDate: Record<string, string>
+			dailyMemosForDate: Record<string, MemoItem>
 		) => boolean
 	): MemosPaginator => {
-		return new MemosPaginator0191(this.client, lastTime, filter);
+		return new MemosPaginator0191(
+			this.client,
+			lastTime,
+			filter,
+			this.settings.includeTags,
+			this.settings.excludeTags
+		);
 	};
 
 	createResourceFetcher = () => {
@@ -129,14 +136,16 @@ class MemosFactory0220 {
 		lastTime?: string,
 		filter?: (
 			date: string,
-			dailyMemosForDate: Record<string, string>
+			dailyMemosForDate: Record<string, MemoItem>
 		) => boolean
 	): MemosPaginator => {
 		return new MemosPaginator0220(
 			this.memoListPaginator,
 			this.authCli,
 			lastTime,
-			filter
+			filter,
+			this.settings.includeTags,
+			this.settings.excludeTags
 		);
 	};
 
@@ -171,14 +180,16 @@ class MemosFactory0251 {
 		lastTime?: string,
 		filter?: (
 			date: string,
-			dailyMemosForDate: Record<string, string>
+			dailyMemosForDate: Record<string, MemoItem>
 		) => boolean
 	): MemosPaginator => {
 		return new MemosPaginator0220(
 			this.memoListPaginator,
 			this.authCli,
 			lastTime,
-			filter
+			filter,
+			this.settings.includeTags,
+			this.settings.excludeTags
 		);
 	};
 
@@ -204,14 +215,16 @@ class MemosFactory0261 {
 		lastTime?: string,
 		filter?: (
 			date: string,
-			dailyMemosForDate: Record<string, string>
+			dailyMemosForDate: Record<string, MemoItem>
 		) => boolean
 	): MemosPaginator => {
 		return new MemosPaginator0261(
 			this.apiUrl,
 			this.settings.memosAPIToken,
 			lastTime,
-			filter
+			filter,
+			this.settings.includeTags,
+			this.settings.excludeTags
 		);
 	};
 

@@ -5,12 +5,47 @@ import { appHasDailyNotesPluginLoaded } from "obsidian-daily-notes-interface";
 
 // Remember to rename these classes and interfaces!
 
+function parseTagList(raw: string): string[] {
+	const seen = new Set<string>();
+	for (const part of raw.split(",")) {
+		const tag = part.trim().replace(/^#/, "").toLowerCase();
+		if (tag) seen.add(tag);
+	}
+	return Array.from(seen);
+}
+
+// One rule per line in "tag: folder" form. Blank lines and lines without `:` are ignored.
+function parseTagFolderRules(
+	raw: string
+): Array<{ tag: string; folder: string }> {
+	const rules: Array<{ tag: string; folder: string }> = [];
+	for (const line of raw.split("\n")) {
+		const idx = line.indexOf(":");
+		if (idx === -1) continue;
+		const tag = line.slice(0, idx).trim().replace(/^#/, "").toLowerCase();
+		const folder = line.slice(idx + 1).trim().replace(/^\/+|\/+$/g, "");
+		if (tag && folder) rules.push({ tag, folder });
+	}
+	return rules;
+}
+
+function stringifyTagFolderRules(
+	rules: Array<{ tag: string; folder: string }>
+): string {
+	return rules.map((r) => `${r.tag}: ${r.folder}`).join("\n");
+}
+
 const MEMOS_SYNC_DEFAULT_SETTINGS: MemosSyncPluginSettings = {
 	dailyMemosHeader: "Memos",
 	memosAPIVersion: "v0.19.1",
 	memosAPIURL: "https://usememos.com",
 	memosAPIToken: "",
 	attachmentFolder: "Attachments",
+	includeTags: [],
+	excludeTags: [],
+	outputMode: "daily-note",
+	perMemoFolder: "Memos",
+	tagFolderRules: [],
 };
 
 export default class MemosSyncPlugin extends Plugin {
@@ -105,20 +140,85 @@ class MemosSyncSettingTab extends PluginSettingTab {
 			});
 		}
 
+		new Setting(this.containerEl).setName("Output mode").setHeading();
+
 		new Setting(this.containerEl)
-			.setName("Daily memos header")
-			.setDesc("The header for the daily memos section.")
-			.addText((textfield) => {
-				textfield.setPlaceholder(
-					MEMOS_SYNC_DEFAULT_SETTINGS.dailyMemosHeader,
-				);
-				textfield.setValue(this.plugin.settings.dailyMemosHeader);
-				textfield.onChange((value) => {
+			.setName("Output mode")
+			.setDesc(
+				"Daily note: append memos to each day's daily note under the header. Per-memo file: one markdown file per memo in a folder you choose.",
+			)
+			.addDropdown((dropDown) => {
+				dropDown.addOptions({
+					"daily-note": "Daily note (legacy)",
+					"per-memo-file": "One file per memo",
+				});
+				dropDown.setValue(this.plugin.settings.outputMode);
+				dropDown.onChange((value) => {
 					this.saveSettings({
-						dailyMemosHeader: value,
+						outputMode: value as MemosSyncPluginSettings["outputMode"],
 					});
+					this.display();
 				});
 			});
+
+		if (this.plugin.settings.outputMode === "daily-note") {
+			new Setting(this.containerEl)
+				.setName("Daily memos header")
+				.setDesc(
+					"The markdown header in each daily note under which memos are inserted.",
+				)
+				.addText((textfield) => {
+					textfield.setPlaceholder(
+						MEMOS_SYNC_DEFAULT_SETTINGS.dailyMemosHeader,
+					);
+					textfield.setValue(this.plugin.settings.dailyMemosHeader);
+					textfield.onChange((value) => {
+						this.saveSettings({
+							dailyMemosHeader: value,
+						});
+					});
+				});
+		} else {
+			new Setting(this.containerEl)
+				.setName("Default folder")
+				.setDesc(
+					"Folder for memos that don't match any tag routing rule below.",
+				)
+				.addText((textfield) => {
+					textfield.setPlaceholder(
+						MEMOS_SYNC_DEFAULT_SETTINGS.perMemoFolder,
+					);
+					textfield.setValue(this.plugin.settings.perMemoFolder);
+					textfield.onChange((value) => {
+						this.saveSettings({
+							perMemoFolder: value,
+						});
+					});
+				});
+
+			new Setting(this.containerEl)
+				.setName("Tag folder routing")
+				.setDesc(
+					"One rule per line in `tag: folder` form. Evaluated top-down, first match wins. Leading # is optional.",
+				)
+				.addTextArea((textarea) => {
+					textarea.setPlaceholder(
+						"work: Memos/Work\n子育て: Memos/家族\nprojet: Memos/Projets\nидея: Memos/Ideas\n日記: Memos/Journal",
+					);
+					textarea.setValue(
+						stringifyTagFolderRules(
+							this.plugin.settings.tagFolderRules,
+						),
+					);
+					textarea.inputEl.rows = 5;
+					textarea.inputEl.style.width = "100%";
+					textarea.onChange((value) => {
+						this.saveSettings({
+							tagFolderRules: parseTagFolderRules(value),
+						});
+					});
+				});
+		}
 
 		new Setting(this.containerEl)
 			.setName("Attachment folder")
@@ -131,6 +231,38 @@ class MemosSyncSettingTab extends PluginSettingTab {
 				textfield.onChange((value) => {
 					this.saveSettings({
 						attachmentFolder: value,
+					});
+				});
+			});
+
+		new Setting(this.containerEl).setName("Tag filter").setHeading();
+
+		new Setting(this.containerEl)
+			.setName("Include tags")
+			.setDesc(
+				"Comma-separated list. Only sync memos that have at least one of these tags. Leading # is optional, matching is case-insensitive. Leave empty to sync all.",
+			)
+			.addText((textfield) => {
+				textfield.setPlaceholder("e.g. obsidian, work, 子育て");
+				textfield.setValue(this.plugin.settings.includeTags.join(", "));
+				textfield.onChange((value) => {
+					this.saveSettings({
+						includeTags: parseTagList(value),
+					});
+				});
+			});
+
+		new Setting(this.containerEl)
+			.setName("Exclude tags")
+			.setDesc(
+				"Comma-separated list. Skip memos that have any of these tags. Applied before Include tags.",
+			)
+			.addText((textfield) => {
+				textfield.setPlaceholder("e.g. private, draft");
+				textfield.setValue(this.plugin.settings.excludeTags.join(", "));
+				textfield.onChange((value) => {
+					this.saveSettings({
+						excludeTags: parseTagList(value),
 					});
 				});
 			});
