@@ -13,7 +13,7 @@ export function convert0220ResourceToAPIResource(
 	resource: Resource
 ): APIResource {
 	return {
-		id: resource.name.replace("resources/", ""),
+		id: resource.name.replace(/^(resources|attachments)\//, ""),
 		filename: resource.filename,
 		externalLink: resource.externalLink,
 		name: resource.name,
