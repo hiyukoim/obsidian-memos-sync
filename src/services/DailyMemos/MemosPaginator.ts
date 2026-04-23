@@ -116,12 +116,18 @@ function transformAPIToMdItemMemo(param: APIMemo): MdItemMemo {
 	};
 }
 
+// Observer invoked for every memo that passes the include/exclude tag filter.
+// Receives the memo's timestamp (same string used as `memo_id` in per-memo-file
+// frontmatter). Used by force-sync orphan detection to build the "seen" set.
+export type OnMemoSeen = (timestamp: string) => void;
+
 export type MemosPaginator = {
 	foreach: (
 		handle: ([today, dailyMemosForToday]: [
 			string, // date, format "YYYY-MM-DD"
 			Record<string, MemoItem> // daily memos for today, map<timestamp, item>
-		]) => Promise<void>
+		]) => Promise<void>,
+		onMemoSeen?: OnMemoSeen
 	) => Promise<string>;
 };
 
@@ -154,7 +160,8 @@ export class MemosPaginator0191 {
 		handle: ([today, dailyMemosForToday]: [
 			string, // date, format "YYYY-MM-DD"
 			Record<string, MemoItem> // daily memos for today, map<timestamp, item>
-		]) => Promise<void>
+		]) => Promise<void>,
+		onMemoSeen?: OnMemoSeen
 	) => {
 		this.offset = 0; // iterate from newest, reset offset
 		while (true) {
@@ -176,7 +183,7 @@ export class MemosPaginator0191 {
 				return this.lastTime;
 			}
 
-			const dailyMemosByDay = this.generalizeDailyMemos(memos);
+			const dailyMemosByDay = this.generalizeDailyMemos(memos, onMemoSeen);
 
 			await Promise.all(
 				Object.entries(dailyMemosByDay).map(
@@ -199,7 +206,10 @@ export class MemosPaginator0191 {
 
 	// generalize daily memos by day and timestamp
 	// map<date, map<timestamp, MemoItem>>
-	private generalizeDailyMemos = (memos: DailyRecordType[]) => {
+	private generalizeDailyMemos = (
+		memos: DailyRecordType[],
+		onMemoSeen?: OnMemoSeen
+	) => {
 		const dailyMemosByDay: Record<string, Record<string, MemoItem>> = {};
 		for (const memo of memos) {
 			if (!memo.content && !memo.resourceList?.length) {
@@ -221,6 +231,8 @@ export class MemosPaginator0191 {
 				content: memo.content,
 				resources: memo.resourceList,
 			});
+
+			onMemoSeen?.(mdItemMemo.timestamp);
 
 			if (!dailyMemosByDay[mdItemMemo.date]) {
 				dailyMemosByDay[mdItemMemo.date] = {};
@@ -269,7 +281,8 @@ export class MemosPaginator0220 {
 		handle: ([today, dailyMemosForToday]: [
 			string, // date, format "YYYY-MM-DD"
 			Record<string, MemoItem> // daily memos for today, map<timestamp, item>
-		]) => Promise<void>
+		]) => Promise<void>,
+		onMemoSeen?: OnMemoSeen
 	) => {
 		// because memos pagination is from newest to oldest
 		// so we always need to iterate from newest and reset pageToken
@@ -310,7 +323,7 @@ export class MemosPaginator0220 {
 				return this.lastTime;
 			}
 
-			const dailyMemosByDay = this.generalizeDailyMemos(memos);
+			const dailyMemosByDay = this.generalizeDailyMemos(memos, onMemoSeen);
 
 			await Promise.all(
 				Object.entries(dailyMemosByDay).map(
@@ -336,7 +349,7 @@ export class MemosPaginator0220 {
 
 	// generalize daily memos by day and timestamp
 	// map<date, map<timestamp, MemoItem>>
-	private generalizeDailyMemos = (memos: Memo[]) => {
+	private generalizeDailyMemos = (memos: Memo[], onMemoSeen?: OnMemoSeen) => {
 		const dailyMemosByDay: Record<string, Record<string, MemoItem>> = {};
 		for (const memo of memos) {
 			if (!memo.content && !memo.resources?.length) {
@@ -358,6 +371,8 @@ export class MemosPaginator0220 {
 				resources: resources,
 				uid: extractMemoUid(memo.name),
 			});
+
+			onMemoSeen?.(mdItemMemo.timestamp);
 
 			if (!dailyMemosByDay[mdItemMemo.date]) {
 				dailyMemosByDay[mdItemMemo.date] = {};
@@ -409,7 +424,8 @@ export class MemosPaginator0261 {
 		handle: ([today, dailyMemosForToday]: [
 			string,
 			Record<string, MemoItem>
-		]) => Promise<void>
+		]) => Promise<void>,
+		onMemoSeen?: OnMemoSeen
 	) => {
 		this.pageToken = "";
 		while (true) {
@@ -431,7 +447,7 @@ export class MemosPaginator0261 {
 				return this.lastTime;
 			}
 
-			const dailyMemosByDay = this.generalizeDailyMemos(memos);
+			const dailyMemosByDay = this.generalizeDailyMemos(memos, onMemoSeen);
 
 			await Promise.all(
 				Object.entries(dailyMemosByDay).map(
@@ -481,7 +497,7 @@ export class MemosPaginator0261 {
 		}
 	};
 
-	private generalizeDailyMemos = (memos: Memo[]) => {
+	private generalizeDailyMemos = (memos: Memo[], onMemoSeen?: OnMemoSeen) => {
 		const dailyMemosByDay: Record<string, Record<string, MemoItem>> = {};
 		for (const memo of memos) {
 			if (!memo.content && !memo.attachments?.length) {
@@ -503,6 +519,8 @@ export class MemosPaginator0261 {
 				resources,
 				uid: extractMemoUid(memo.name),
 			});
+
+			onMemoSeen?.(mdItemMemo.timestamp);
 
 			if (!dailyMemosByDay[mdItemMemo.date]) {
 				dailyMemosByDay[mdItemMemo.date] = {};

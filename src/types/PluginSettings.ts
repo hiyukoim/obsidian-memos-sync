@@ -30,7 +30,7 @@ export interface MemosSyncPluginSettings {
 	excludeTags: string[];
 	/**
 	 * Where synced memos land.
-	 *  - "daily-note": append to the daily note under the configured header (legacy)
+	 *  - "daily-note": append to the daily note under the configured header
 	 *  - "per-memo-file": one markdown file per memo, routed by tag rules
 	 */
 	outputMode: "daily-note" | "per-memo-file";
@@ -49,4 +49,17 @@ export interface MemosSyncPluginSettings {
 	 * Empty = auto-derive from perMemoFolder + tagFolderRules folders.
 	 */
 	scanFolders: string[];
+	/**
+	 * How to treat local memo files whose memo_id is no longer present on the
+	 * server (orphans). Evaluated only during force sync in per-memo-file mode.
+	 *  - "keep"   — no action, file stays as-is (default)
+	 *  - "mark"   — add `deleted: <ISO>` frontmatter + body hashtag marker
+	 *  - "delete" — move file to system trash (after confirmation)
+	 */
+	orphanHandling: "keep" | "mark" | "delete";
+	/**
+	 * Body hashtag appended when orphanHandling === "mark". Written without
+	 * the leading `#`. Empty falls back to "memos-deleted".
+	 */
+	orphanMarkerTag: string;
 }

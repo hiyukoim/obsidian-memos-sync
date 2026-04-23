@@ -5,7 +5,7 @@ import {
 	getDateFromFile,
 } from "obsidian-daily-notes-interface";
 import type { Moment } from "moment";
-import { App, MarkdownView, TFile, normalizePath } from "obsidian";
+import { App, MarkdownView, Notice, TFile, normalizePath } from "obsidian";
 import { MemosSyncPluginSettings } from "@/types/PluginSettings";
 import * as log from "@/utils/log";
 import { MemosPaginator } from "./MemosPaginator";
@@ -73,7 +73,7 @@ export class DailyMemos {
 		log.info("Force syncing daily memos...");
 		const forcePaginator = this.memosFactory.createMemosPaginator("");
 		this.downloadResource();
-		this.insertDailyMemos(forcePaginator);
+		await this.insertDailyMemos(forcePaginator, /* collectSeen */ true);
 		this.memosPaginator = forcePaginator;
 	};
 
@@ -175,11 +175,21 @@ export class DailyMemos {
 		);
 	};
 
-	private insertDailyMemos = async (memosPaginator: MemosPaginator) => {
+	private insertDailyMemos = async (
+		memosPaginator: MemosPaginator,
+		collectSeen = false
+	) => {
 		const mode = this.settings.outputMode ?? "daily-note";
+		// Only collect in per-memo-file mode with a non-keep orphan policy.
+		// Daily-note mode has no per-file concept, so orphan detection doesn't apply.
+		const orphanMode = this.settings.orphanHandling ?? "keep";
+		const shouldCollect =
+			collectSeen && mode === "per-memo-file" && orphanMode !== "keep";
+		const seen = shouldCollect ? new Set<string>() : null;
+
 		const lastTime =
 			mode === "per-memo-file"
-				? await this.writePerMemoFiles(memosPaginator)
+				? await this.writePerMemoFiles(memosPaginator, seen)
 				: await this.writeDailyNotes(memosPaginator);
 
 		log.info(`Synced daily memos, lastTime: ${lastTime}`);
@@ -214,12 +224,34 @@ export class DailyMemos {
 		});
 	};
 
-	private writePerMemoFiles = async (memosPaginator: MemosPaginator) => {
+	private writePerMemoFiles = async (
+		memosPaginator: MemosPaginator,
+		seen: Set<string> | null
+	) => {
 		const writer = new PerMemoFileWriter(this.app, this.settings);
-		return memosPaginator.foreach(async ([, dailyMemosForToday]) => {
-			for (const item of Object.values(dailyMemosForToday)) {
-				await writer.writeMemo(item);
+		const lastTime = await memosPaginator.foreach(
+			async ([, dailyMemosForToday]) => {
+				for (const item of Object.values(dailyMemosForToday)) {
+					await writer.writeMemo(item);
+				}
+			},
+			seen ? (ts) => seen.add(ts) : undefined
+		);
+
+		if (seen) {
+			const summary = await writer.handleOrphans(seen);
+			const total = summary.marked + summary.deleted + summary.kept;
+			if (total > 0) {
+				const mode = this.settings.orphanHandling ?? "keep";
+				const msg =
+					mode === "mark"
+						? `Orphan memos: ${summary.marked} marked, ${summary.kept} already marked`
+						: `Orphan memos: ${summary.deleted} deleted, ${summary.kept} kept`;
+				new Notice(msg);
+				log.info(msg);
 			}
-		});
+		}
+
+		return lastTime;
 	};
 }

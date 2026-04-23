@@ -1,11 +1,17 @@
-import { App, normalizePath } from "obsidian";
+import { App, Modal, Setting, TFile, normalizePath } from "obsidian";
 import { MemosSyncPluginSettings } from "@/types/PluginSettings";
 import * as log from "@/utils/log";
 import { MemoItem } from "./MemosPaginator";
 
+export type OrphanSummary = {
+	marked: number;
+	deleted: number;
+	kept: number;
+};
+
 // Keys the plugin owns and rewrites on every sync. Everything else in an
 // existing file's frontmatter is treated as user-owned and preserved verbatim.
-const MANAGED_KEYS = new Set(["memo_id", "created", "memo_url"]);
+const MANAGED_KEYS = new Set(["memo_id", "created", "memo_url", "deleted"]);
 
 // Route a memo to a folder by the first matching tag rule, else the default.
 // Matching is case-insensitive; both sides are stored lowercased by settings parsing.
@@ -214,6 +220,81 @@ export class PerMemoFileWriter {
 		return index;
 	};
 
+	// Called after a force sync to reconcile local files against the seen server
+	// memos. Any indexed file whose memo_id isn't in `seen` is treated as an orphan
+	// and handled per settings.orphanHandling.
+	handleOrphans = async (
+		seenTimestamps: Set<string>
+	): Promise<OrphanSummary> => {
+		const mode = this.settings.orphanHandling ?? "keep";
+		const summary: OrphanSummary = { marked: 0, deleted: 0, kept: 0 };
+		if (mode === "keep") return summary;
+
+		const index = await this.buildIndex();
+		const orphans: Array<{ memoId: string; path: string }> = [];
+		for (const [memoId, path] of index) {
+			if (!seenTimestamps.has(memoId)) {
+				orphans.push({ memoId, path });
+			}
+		}
+		if (orphans.length === 0) return summary;
+
+		if (mode === "mark") {
+			const tag = (this.settings.orphanMarkerTag || "memos-deleted")
+				.replace(/^#/, "")
+				.trim();
+			for (const { path } of orphans) {
+				if (!(await this.app.vault.adapter.exists(path))) continue;
+				const current = await this.app.vault.adapter.read(path);
+				const { fmLines, body } = splitFrontmatter(current);
+				const alreadyMarked = fmLines.some(
+					(line) => topLevelKey(line) === "deleted"
+				);
+				if (alreadyMarked) {
+					summary.kept += 1;
+					continue;
+				}
+				const nowISO = window.moment().format();
+				const userFm = stripManagedKeys(fmLines);
+				const managed: string[] = [];
+				for (const line of fmLines) {
+					const key = topLevelKey(line);
+					if (key && MANAGED_KEYS.has(key) && key !== "deleted") {
+						managed.push(line);
+					}
+				}
+				managed.push(`deleted: ${nowISO}`);
+				const newFm = `---\n${[...managed, ...userFm].join("\n")}\n---\n`;
+				const marker = `#${tag}`;
+				const bodyTrimmed = body.replace(/\s+$/, "");
+				const needsMarker = !bodyTrimmed.includes(marker);
+				const newBody = needsMarker
+					? `${bodyTrimmed}\n\n${marker}\n`
+					: body;
+				await this.app.vault.adapter.write(path, newFm + newBody);
+				summary.marked += 1;
+				log.debug(`Orphan marked: ${path}`);
+			}
+			return summary;
+		}
+
+		// mode === "delete" — confirm first, then trash on approval
+		const confirmed = await confirmOrphanDelete(this.app, orphans);
+		if (!confirmed) {
+			summary.kept = orphans.length;
+			return summary;
+		}
+		for (const { path } of orphans) {
+			const file = this.app.vault.getAbstractFileByPath(path);
+			if (file instanceof TFile) {
+				await this.app.vault.trash(file, true);
+				summary.deleted += 1;
+				log.debug(`Orphan trashed: ${path}`);
+			}
+		}
+		return summary;
+	};
+
 	private ensureFolder = async (folder: string) => {
 		const normalized = normalizePath(folder);
 		if (!this.app.vault.getFolderByPath(normalized)) {
@@ -224,4 +305,59 @@ export class PerMemoFileWriter {
 			});
 		}
 	};
+}
+
+// Simple promise-based confirmation modal listing orphan paths.
+// Resolves true on confirm, false on cancel / close.
+function confirmOrphanDelete(
+	app: App,
+	orphans: Array<{ memoId: string; path: string }>
+): Promise<boolean> {
+	return new Promise((resolve) => {
+		const modal = new (class extends Modal {
+			private decided = false;
+			onOpen() {
+				this.titleEl.setText(
+					`Delete ${orphans.length} orphan memo file(s)?`
+				);
+				const p = this.contentEl.createEl("p");
+				p.setText(
+					"These files correspond to memos that no longer exist on the Memos server. They will be moved to the system trash."
+				);
+				const list = this.contentEl.createEl("ul");
+				const preview = orphans.slice(0, 10);
+				for (const o of preview) {
+					list.createEl("li", { text: o.path });
+				}
+				if (orphans.length > preview.length) {
+					this.contentEl.createEl("p", {
+						text: `…and ${orphans.length - preview.length} more.`,
+					});
+				}
+				new Setting(this.contentEl)
+					.addButton((b) =>
+						b.setButtonText("Cancel").onClick(() => {
+							this.decided = true;
+							this.close();
+							resolve(false);
+						})
+					)
+					.addButton((b) =>
+						b
+							.setButtonText("Move to trash")
+							.setWarning()
+							.onClick(() => {
+								this.decided = true;
+								this.close();
+								resolve(true);
+							})
+					);
+			}
+			onClose() {
+				if (!this.decided) resolve(false);
+				this.contentEl.empty();
+			}
+		})(app);
+		modal.open();
+	});
 }

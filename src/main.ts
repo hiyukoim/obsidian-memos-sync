@@ -57,6 +57,8 @@ const MEMOS_SYNC_DEFAULT_SETTINGS: MemosSyncPluginSettings = {
 	perMemoFolder: "Memos",
 	tagFolderRules: [],
 	scanFolders: [],
+	orphanHandling: "keep",
+	orphanMarkerTag: "memos-deleted",
 };
 
 export default class MemosSyncPlugin extends Plugin {
@@ -162,7 +164,7 @@ class MemosSyncSettingTab extends PluginSettingTab {
 			)
 			.addDropdown((dropDown) => {
 				dropDown.addOptions({
-					"daily-note": "Daily note (legacy)",
+					"daily-note": "Daily note",
 					"per-memo-file": "One file per memo",
 				});
 				dropDown.setValue(this.plugin.settings.outputMode);
@@ -250,6 +252,50 @@ class MemosSyncSettingTab extends PluginSettingTab {
 						});
 					});
 				});
+
+			new Setting(this.containerEl)
+				.setName("Orphan handling")
+				.setDesc(
+					"What to do with local memo files whose memo is no longer on the server. Runs during force sync only. Mark adds a `deleted:` frontmatter key + body hashtag. Delete moves to system trash after confirmation.",
+				)
+				.addDropdown((dropDown) => {
+					dropDown.addOptions({
+						keep: "Keep (no action)",
+						mark: "Mark with deleted tag",
+						delete: "Delete (move to trash)",
+					});
+					dropDown.setValue(
+						this.plugin.settings.orphanHandling ?? "keep",
+					);
+					dropDown.onChange((value) => {
+						this.saveSettings({
+							orphanHandling:
+								value as MemosSyncPluginSettings["orphanHandling"],
+						});
+						this.display();
+					});
+				});
+
+			if (this.plugin.settings.orphanHandling === "mark") {
+				new Setting(this.containerEl)
+					.setName("Orphan marker tag")
+					.setDesc(
+						"Hashtag appended to the body of orphan files. Leading # is optional.",
+					)
+					.addText((textfield) => {
+						textfield.setPlaceholder("memos-deleted");
+						textfield.setValue(
+							this.plugin.settings.orphanMarkerTag,
+						);
+						textfield.onChange((value) => {
+							this.saveSettings({
+								orphanMarkerTag: value
+									.trim()
+									.replace(/^#/, ""),
+							});
+						});
+					});
+			}
 		}
 
 		new Setting(this.containerEl)

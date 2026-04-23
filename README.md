@@ -1,79 +1,143 @@
 # Memos Sync Plus
 
-A fork of [RyoJerryYu/obsidian-memos-sync](https://github.com/RyoJerryYu/obsidian-memos-sync) with additional features for tag-based filtering, per-memo file output, and user-owned frontmatter.
+A fork of [RyoJerryYu/obsidian-memos-sync](https://github.com/RyoJerryYu/obsidian-memos-sync) that syncs memos from a [Memos](https://github.com/usememos/memos) server into your Obsidian vault.
 
-Syncs memos from a [Memos](https://github.com/usememos/memos) server into your Obsidian vault.
+## What it does
 
-## What's different in this fork
+One-way sync from a Memos server into your Obsidian vault. Two output modes:
 
-- **Tag filter** — sync only memos that match an include-tag list, or skip memos that match an exclude-tag list. Unicode-aware, so Japanese / Cyrillic / etc. tags work.
-- **Per-memo file output** — instead of appending memos under a header in each day's daily note, write one markdown file per memo with managed frontmatter (`memo_id`, `created`, `memo_url`) and a stable `^memo_id` block anchor.
-- **Tag folder routing** — when using per-memo file output, route new memos to different folders based on their first matching tag. Rules are plain `tag: folder` lines, evaluated top-down, first match wins.
-- **Manual file moves respected** — move memo files anywhere inside the configured scan scope and the plugin finds them again on re-sync by frontmatter `memo_id`. Routing rules only affect where *new* memos land; existing memos update in place.
-- **User-owned frontmatter preserved** — the plugin only rewrites `memo_id`, `created`, and `memo_url`. Any other frontmatter you add (your own `tags:`, custom keys, notes) survives re-syncs unchanged. Server-side tags stay as `#hashtag` in the body, so Obsidian's tag pane picks them up natively.
-- **Memo URL backlink** — frontmatter includes a `memo_url:` pointing at the memo in the Memos web UI, so you can jump from Obsidian back to the server to edit. Requires Memos v0.22+ (skipped on v0.19.x).
-- **Diagnostics for Memos v0.26.x / v0.27.x** — improved REST error messages when the server is behind Cloudflare Access or similar gateways.
+- **Daily note mode** *(default)* — memos are appended under a configurable header inside each day's daily note.
+- **Per-memo file mode** — each memo becomes its own `.md` file with managed frontmatter, optional folder routing by tag, and user-owned metadata that survives re-syncs.
 
-The original daily-note output mode is still the default and behaves the same as upstream.
+Edit memos in Memos, annotate them with frontmatter in Obsidian. Syncing is Memos → Obsidian only; the plugin never writes back to the server.
 
 ## Compatibility
 
-Works with the official [Daily Notes](https://help.obsidian.md/Plugins/Daily+notes), [Calendar](https://github.com/liamcain/obsidian-calendar-plugin) and [Periodic Notes](https://github.com/liamcain/obsidian-periodic-notes) plugins (daily-note mode only — per-memo mode has no daily-note dependency).
-
-Supports Memos API versions from v0.19.x through v0.26.x.
+- Memos API: v0.19.x through v0.26.x (v0.27.x supported via REST path with improved diagnostics when the server is behind Cloudflare Access).
+- Daily note mode requires the official [Daily Notes](https://help.obsidian.md/Plugins/Daily+notes), [Calendar](https://github.com/liamcain/obsidian-calendar-plugin), or [Periodic Notes](https://github.com/liamcain/obsidian-periodic-notes) plugin. Per-memo mode has no daily-note dependency.
+- Desktop only.
 
 ## Commands
 
-- **Sync memos** — incremental sync since the last run.
-- **Force sync memos** — re-sync everything, ignoring the last-run timestamp.
-- **Force sync today's memos** — re-sync memos for the day of the currently open daily note (daily-note mode only).
+| Command | What it does |
+| --- | --- |
+| **Sync memos** | Incremental sync since the last run. |
+| **Force sync memos** | Re-sync everything, ignoring the last-run timestamp. Also the trigger for orphan handling. |
+| **Force sync today's memos** | Daily-note mode only — re-sync memos for the day of the currently open daily note. |
 
-## Configuration
+---
 
-### Output mode
+## Output modes
 
-- **Daily note (legacy)** — append memos under a configurable header in each day's daily note. Matches upstream behaviour.
-- **One file per memo** — write one markdown file per memo into a folder of your choice, with optional tag-based routing.
+### Daily note mode
+
+Appends each synced memo as a bullet under a configurable header inside that day's daily note.
+
+Settings:
+
+- **Daily memos header** — the markdown header the plugin inserts under (e.g. `## Memos`). Your daily-note template must include this header, otherwise the plugin has nowhere to insert.
 
 ### Per-memo file mode
 
+Writes one markdown file per memo. Each file has managed frontmatter (`memo_id`, `created`, `memo_url`), user-owned everything-else, and a stable `^<memo_id>` block anchor at the bottom.
+
+Filename pattern: `YYYY-MM-DD-HHmm.md` in the target folder, with numeric suffixes on collision (`-01`, `-02`, …).
+
+Settings:
+
 - **Default folder** — where memos go when no routing rule matches.
-- **Tag folder routing** — one rule per line in `tag: folder` form. First matching rule wins; memos with no matching rule fall back to the Default folder. Leading `#` is optional.
 
-  ```
-  work: Memos/Work
-  가족: Memos/가족
-  projet: Memos/Projets
-  идея: Memos/Ideas
-  日記: Memos/Journal
-  ```
+---
 
-- **Scan folders** — comma-separated folders (with descendants) to scan for existing memo files by frontmatter `memo_id`. Existing files are updated in place wherever they live inside scope — routing folders only affect where *new* memos land. Leave empty to auto-scan the Default folder and all routing folders.
+## Features (per-memo file mode)
+
+### Tag folder routing
+
+Route new memos into different folders based on their tags. One rule per line, `tag: folder`. Evaluated top-down, first match wins; memos with no matching rule fall back to the default folder. Leading `#` is optional, matching is case-insensitive, Unicode-aware.
+
+```
+work: Memos/Work
+子育て: Memos/家族
+projet: Memos/Projets
+идея: Memos/Ideas
+日記: Memos/Journal
+```
+
+Routing only affects **where new memos land**. Existing memos update in place wherever they currently live (see *Manual file moves*).
+
+### Manual file moves respected
+
+Move any synced memo file anywhere inside the configured scan scope and the plugin will find it again by frontmatter `memo_id` on the next sync. Useful when reorganising files, or when your routing rules change — old memos don't get migrated or re-routed.
+
+Settings:
+
+- **Scan folders** — comma-separated folders (with descendants) the plugin searches for existing `memo_id`s. Leave empty to auto-derive from the default folder + all routing-rule folders.
 
   Example: `Memos, Archive, Projects/Notes`
 
-### Frontmatter contract
+### User-owned frontmatter
 
-In per-memo file mode, the plugin owns exactly three frontmatter keys and rewrites them on every sync:
+The plugin owns exactly four frontmatter keys and rewrites them on every sync:
 
-- `memo_id` — stable identifier used to locate the file on later syncs.
-- `created` — ISO timestamp.
-- `memo_url` — link back to the memo in the Memos web UI (v0.22+ only).
+| Key | Meaning |
+| --- | --- |
+| `memo_id` | Stable identifier the plugin uses to locate the file on later syncs. |
+| `created` | ISO timestamp of the memo's creation. |
+| `memo_url` | Deep link back to the memo in the Memos web UI (v0.22+). |
+| `deleted` | ISO timestamp added when the memo is detected as an orphan (see *Orphan handling*). Stripped on un-deletion. |
 
-Everything else in the frontmatter block is user-owned and preserved verbatim. Add your own `tags:`, `rating:`, `source:`, whatever — it will survive re-syncs. The body (memo content + attachment links + `^memo_id` anchor) is always overwritten from the server.
+**Everything else in the frontmatter block is user-owned and preserved verbatim.** Add your own `tags:`, `rating:`, `source:`, whatever — it survives re-syncs. The body (memo content + attachment links + `^<memo_id>` anchor) is always overwritten from the server.
 
-**Rule of thumb:** edit the memo body in Memos; annotate with frontmatter in Obsidian.
+Server-side hashtags like `#work` live in the body, not in `tags:`, so Obsidian's tag pane picks them up natively while you keep full control of the `tags:` frontmatter list.
+
+### Memo URL backlink
+
+Each synced file's frontmatter includes `memo_url: https://<your-memos-host>/m/<uid>`, a one-click jump back to the memo in the Memos web UI for editing. Requires Memos v0.22+; skipped on v0.19.x.
+
+### Orphan handling
+
+When a memo is deleted on the Memos server, its corresponding local `.md` file is orphaned — the plugin never fetches it again, so the file sits silently stale. Orphan handling lets you opt in to doing something about it.
+
+Orphan detection runs **only during force sync** (when the full server list is walked). Scope is limited to the configured scan folders. Nothing happens during regular `Sync memos`.
+
+Options (setting: **Orphan handling**):
+
+| Option | What happens to orphan files |
+| --- | --- |
+| **Keep** *(default)* | Nothing. Files stay as-is. |
+| **Mark** | Plugin adds `deleted: <ISO>` to managed frontmatter and appends a `#memos-deleted` hashtag to the body. File stays in place, shows up in Obsidian's tag pane for easy filtering. |
+| **Delete** | File is moved to the system trash (reversible via OS). Shown in a confirmation dialog listing affected files before anything is touched. |
+
+Additional setting (mark mode only):
+
+- **Orphan marker tag** — customise the hashtag (default `memos-deleted`).
+
+**Un-deletion recovers automatically.** If a memo re-appears on the server (un-archived, or you recreate it and paste the same content), the next sync overwrites the local file as usual, which strips the `deleted:` key and the marker. No manual cleanup needed.
 
 ### Tag filter
 
-- **Include tags** — comma-separated list. Only memos with at least one of these tags are synced. Leave empty to sync everything. Leading `#` is optional; matching is case-insensitive.
-- **Exclude tags** — comma-separated list. Memos with any of these tags are skipped. Applied before Include tags, so exclude wins.
+Applies to both output modes — controls which memos get synced at all.
 
-### Memos API
+Settings:
 
-- **Memos API version** — pick the range matching your server.
-- **Memos API URL** — e.g. `http://localhost:5230`.
+- **Include tags** — comma-separated. Only memos carrying at least one of these tags are synced. Empty = sync everything.
+- **Exclude tags** — comma-separated. Memos carrying any of these tags are skipped. Applied before include (exclude wins).
+
+Leading `#` is optional, matching is case-insensitive, Unicode-aware.
+
+---
+
+## Memos API settings
+
+- **Memos API version** — pick the range matching your server. Routes internally to the right REST/gRPC adapter.
+- **Memos API URL** — e.g. `http://localhost:5230`. No trailing slash needed.
 - **Memos API token** — create one from the Memos UI under Settings → My Account.
+
+### Attachment folder
+
+Where downloaded attachments go. Default `Attachments`.
+
+---
 
 ## FAQ
 
@@ -87,11 +151,17 @@ Nothing breaks — as long as the destination is inside the configured scan scop
 
 ### Will my Obsidian-added frontmatter survive a sync?
 
-Yes. Only `memo_id`, `created`, and `memo_url` are managed by the plugin. Any other keys (including a user-added `tags:` list) are preserved verbatim.
+Yes. Only `memo_id`, `created`, `memo_url`, and `deleted` are managed by the plugin. Any other keys (including a user-added `tags:` list) are preserved verbatim.
+
+### How do I find all orphan files?
+
+Set Orphan handling to **Mark**, then click Obsidian's tag pane and filter by `#memos-deleted` — or run a search query for `tag:#memos-deleted`.
 
 ### "Failed to find header for xxxx"
 
-The daily-note output mode inserts memos under a specific header. If your daily-note template doesn't contain that header, the plugin has nowhere to insert. Either update your template to include the header, or switch to per-memo file output.
+Daily-note mode only. The plugin inserts memos under a specific header; if your daily-note template doesn't include it, there's nowhere to insert. Either update your template, or switch to per-memo file mode.
+
+---
 
 ## Credits
 
