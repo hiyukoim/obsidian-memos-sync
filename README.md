@@ -2,6 +2,14 @@
 
 A fork of [RyoJerryYu/obsidian-memos-sync](https://github.com/RyoJerryYu/obsidian-memos-sync) that syncs memos from a [Memos](https://github.com/usememos/memos) server into your Obsidian vault.
 
+## Why this fork
+
+I love Memos. It's so frictionless for capturing everything. Thoughts, links, half-formed ideas... that it became my default dump for anything that crossed my mind.
+
+But over time I wanted those captures to integrate with my Obsidian notes, where I can connect them to my existing knowledge base and feed them into LLM workflows. The original plugin got me most of the way there, but I needed more control over where things landed: complex tag routing, per-memo files with stable identities, frontmatter I could annotate without losing on the next sync.
+
+So I forked it, and here we are :)
+
 ## What it does
 
 One-way sync from a Memos server into your Obsidian vault. Two output modes:
