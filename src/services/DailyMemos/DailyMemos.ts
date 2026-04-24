@@ -193,9 +193,11 @@ export class DailyMemos {
 		}
 		await Promise.all(
 			resources.map(async (resource) => {
-				if (resource.externalLink) {
+				if (resource.externalLink && !resource.name) {
+					// Truly external resource with no server identity — skip.
+					// Server-managed resources (name set) are downloaded via /file/ even when served from R2.
 					log.debug(
-						`External resource, skip download: ${resource.externalLink}`,
+						`Truly external resource, skip download: ${resource.externalLink}`,
 					);
 					return;
 				}

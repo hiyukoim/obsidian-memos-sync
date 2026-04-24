@@ -27,13 +27,12 @@ export function generateResourceName(resource: APIResource): string {
 }
 
 export function generateResourceLink(resource: APIResource): string {
-	if (!resource.externalLink) {
+	if (resource.name) {
+		// Server-managed attachment (may be served via externalLink / R2).
+		// Always use a local wiki link — fetchResource downloads it via /file/.
 		return `![[${generateResourceName(resource)}]]`;
 	}
-
-	const prefix = resource.type?.includes("image") ? "!" : ""; // only add ! for image type
-
-	return `${prefix}[${resource.name || resource.filename}](${
-		resource.externalLink
-	})`;
+	// Truly external resource with no server identity — link to URL as-is.
+	const prefix = resource.type?.includes("image") ? "!" : "";
+	return `${prefix}[${resource.filename}](${resource.externalLink})`;
 }

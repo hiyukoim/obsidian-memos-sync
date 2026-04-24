@@ -1,6 +1,6 @@
 {
 	"name": "obsidian-memos-sync-plus",
-	"version": "0.7.3",
+	"version": "0.7.4",
 	"description": "Fork of memos-sync with tag filter, per-memo-file output, and tag folder routing.",
 	"main": "main.js",
 	"scripts": {
