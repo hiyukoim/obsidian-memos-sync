@@ -1,10 +1,11 @@
 {
 	"id": "memos-sync-plus",
 	"name": "Memos Sync Plus",
-	"version": "0.7.0",
+	"version": "0.7.1",
 	"minAppVersion": "1.5.12",
 	"description": "Sync memos from a Memos server to Obsidian with tag filter, per-memo-file output, and tag-based folder routing. Fork of memos-sync.",
 	"author": "hiyukoim",
 	"authorUrl": "https://github.com/hiyukoim",
+	"fundingUrl": "https://www.buymeacoffee.com/hiyukoim",
 	"isDesktopOnly": true
 }
