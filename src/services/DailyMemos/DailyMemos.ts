@@ -11,7 +11,7 @@ import * as log from "@/utils/log";
 import { MemosPaginator } from "./MemosPaginator";
 import { DailyNoteModifier } from "./DailyNoteModifier";
 import { MemosResourceFetcher } from "./MemosResourceFetcher";
-import { generateResourceName } from "./MemosResource";
+import { APIResource, generateResourceName } from "./MemosResource";
 import { MemosAbstractFactory } from "./MemosVersionFactory";
 import { PerMemoFileWriter } from "./PerMemoFileWriter";
 
@@ -69,7 +69,7 @@ export class DailyMemos {
 	}
 
 	/**
-	 * Force syncing daily memos, ignore the lastTime.
+	 * Force syncing memos, ignore the lastTime.
 	 * After syncing, save the lastTime to localStorage, and reload the memosPaginator.
 	 */
 	forceSync = async () => {
@@ -79,10 +79,15 @@ export class DailyMemos {
 		}
 		this.syncing = true;
 		try {
-			log.info("Force syncing daily memos...");
+			log.info("Force syncing memos...");
 			const forcePaginator = this.memosFactory.createMemosPaginator("");
-			await this.downloadResource();
-			await this.insertDailyMemos(forcePaginator, /* collectSeen */ true);
+			const referenced = new Map<string, APIResource>();
+			await this.insertDailyMemos(
+				forcePaginator,
+				/* collectSeen */ true,
+				(r) => referenced.set(generateResourceName(r), r),
+			);
+			await this.downloadReferencedResources([...referenced.values()]);
 			this.memosPaginator = forcePaginator;
 		} catch (e) {
 			const msg = e instanceof Error ? e.message : String(e);
@@ -94,7 +99,7 @@ export class DailyMemos {
 	};
 
 	/**
-	 * Sync daily memos, only sync the memos after the lastTime.
+	 * Sync memos, only sync the memos after the lastTime.
 	 * After syncing, save the lastTime to localStorage.
 	 */
 	sync = async () => {
@@ -104,9 +109,14 @@ export class DailyMemos {
 		}
 		this.syncing = true;
 		try {
-			log.info("Syncing daily memos...");
-			await this.downloadResource();
-			await this.insertDailyMemos(this.memosPaginator);
+			log.info("Syncing memos...");
+			const referenced = new Map<string, APIResource>();
+			await this.insertDailyMemos(
+				this.memosPaginator,
+				false,
+				(r) => referenced.set(generateResourceName(r), r),
+			);
+			await this.downloadReferencedResources([...referenced.values()]);
 		} catch (e) {
 			const msg = e instanceof Error ? e.message : String(e);
 			new Notice(`Memos sync failed: ${msg}`);
@@ -150,8 +160,13 @@ export class DailyMemos {
 
 		this.syncing = true;
 		try {
-			await this.downloadResource();
-			await this.insertDailyMemos(currentMomentMmemosPaginator);
+			const referenced = new Map<string, APIResource>();
+			await this.insertDailyMemos(
+				currentMomentMmemosPaginator,
+				false,
+				(r) => referenced.set(generateResourceName(r), r),
+			);
+			await this.downloadReferencedResources([...referenced.values()]);
 		} catch (e) {
 			const msg = e instanceof Error ? e.message : String(e);
 			new Notice(`Memos sync failed: ${msg}`);
@@ -162,16 +177,14 @@ export class DailyMemos {
 	};
 
 	/**
-	 * Download resources to attachments folder.
+	 * Download only the attachments referenced by memos that survived the tag
+	 * filter. Skipping the global list endpoint avoids pulling orphaned
+	 * attachments from filtered-out or deleted memos.
 	 */
-	private downloadResource = async (): Promise<void> => {
-		const { origin } = new URL(this.settings.memosAPIURL);
-		const resourceList = await this.memosResourceFetcher.listResources();
-
-		if (!resourceList) {
-			log.debug(`No resources found: ${origin}/resource`);
-			return;
-		}
+	private downloadReferencedResources = async (
+		resources: APIResource[],
+	): Promise<void> => {
+		if (!resources.length) return;
 
 		const folder = this.settings.attachmentFolder;
 		if (!this.app.vault.getFolderByPath(folder)) {
@@ -179,9 +192,8 @@ export class DailyMemos {
 			await this.app.vault.createFolder(folder);
 		}
 		await Promise.all(
-			resourceList.map(async (resource) => {
+			resources.map(async (resource) => {
 				if (resource.externalLink) {
-					// do not download external resources
 					log.debug(
 						`External resource, skip download: ${resource.externalLink}`,
 					);
@@ -219,7 +231,8 @@ export class DailyMemos {
 
 	private insertDailyMemos = async (
 		memosPaginator: MemosPaginator,
-		collectSeen = false
+		collectSeen = false,
+		onResourceReferenced?: (r: APIResource) => void,
 	) => {
 		const mode = this.settings.outputMode ?? "daily-note";
 		// Only collect in per-memo-file mode with a non-keep orphan policy.
@@ -231,19 +244,28 @@ export class DailyMemos {
 
 		const lastTime =
 			mode === "per-memo-file"
-				? await this.writePerMemoFiles(memosPaginator, seen)
-				: await this.writeDailyNotes(memosPaginator);
+				? await this.writePerMemoFiles(memosPaginator, seen, onResourceReferenced)
+				: await this.writeDailyNotes(memosPaginator, onResourceReferenced);
 
-		log.info(`Synced daily memos, lastTime: ${lastTime}`);
+		log.info(`Synced memos, lastTime: ${lastTime}`);
 		window.localStorage.setItem(this.localKey, lastTime);
 	};
 
-	private writeDailyNotes = async (memosPaginator: MemosPaginator) => {
+	private writeDailyNotes = async (
+		memosPaginator: MemosPaginator,
+		onResourceReferenced?: (r: APIResource) => void,
+	) => {
 		const dailyNoteManager = new DailyNoteManager();
 		const dailyNoteModifier = new DailyNoteModifier(
 			this.settings.dailyMemosHeader,
 		);
 		return memosPaginator.foreach(async ([today, dailyMemosForToday]) => {
+			if (onResourceReferenced) {
+				for (const item of Object.values(dailyMemosForToday)) {
+					for (const r of item.resources) onResourceReferenced(r);
+				}
+			}
+
 			const momentDay = window.moment(today);
 
 			const targetFile = await dailyNoteManager.getOrCreateDailyNote(
@@ -268,12 +290,16 @@ export class DailyMemos {
 
 	private writePerMemoFiles = async (
 		memosPaginator: MemosPaginator,
-		seen: Set<string> | null
+		seen: Set<string> | null,
+		onResourceReferenced?: (r: APIResource) => void,
 	) => {
 		const writer = new PerMemoFileWriter(this.app, this.settings);
 		const lastTime = await memosPaginator.foreach(
 			async ([, dailyMemosForToday]) => {
 				for (const item of Object.values(dailyMemosForToday)) {
+					if (onResourceReferenced) {
+						for (const r of item.resources) onResourceReferenced(r);
+					}
 					await writer.writeMemo(item);
 				}
 			},

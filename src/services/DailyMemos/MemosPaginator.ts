@@ -37,6 +37,7 @@ type MdItemMemo = {
 	rendered: string; // daily-note bullet form
 	rawContent: string; // original memo body (no mutations)
 	resourceLines: string[]; // markdown links for per-memo output
+	resources: APIResource[]; // raw resources referenced by this memo — drives filtered attachment download
 	uid?: string;
 };
 
@@ -46,6 +47,11 @@ export type MemoItem = {
 	rendered: string;
 	rawContent: string;
 	resourceLines: string[];
+	// Raw resources for this memo. Used by the sync driver to download only
+	// attachments referenced by memos that survived the tag filter — the global
+	// listAttachments endpoint returns everything on the server, so relying on
+	// it would pull orphans from filtered-out memos.
+	resources: APIResource[];
 	tags: string[];
 	uid?: string;
 };
@@ -118,6 +124,7 @@ function transformAPIToMdItemMemo(param: APIMemo): MdItemMemo {
 		rendered: finalTargetContent,
 		rawContent: content,
 		resourceLines,
+		resources: resources ?? [],
 		uid,
 	};
 }
@@ -265,6 +272,7 @@ export class MemosPaginator0191 {
 				rendered: mdItemMemo.rendered,
 				rawContent: mdItemMemo.rawContent,
 				resourceLines: mdItemMemo.resourceLines,
+				resources: mdItemMemo.resources,
 				tags: memoTags,
 				uid: mdItemMemo.uid,
 			};
@@ -412,6 +420,7 @@ export class MemosPaginator0220 {
 				rendered: mdItemMemo.rendered,
 				rawContent: mdItemMemo.rawContent,
 				resourceLines: mdItemMemo.resourceLines,
+				resources: mdItemMemo.resources,
 				tags: memoTags,
 				uid: mdItemMemo.uid,
 			};
@@ -570,6 +579,7 @@ export class MemosPaginator0261 {
 				rendered: mdItemMemo.rendered,
 				rawContent: mdItemMemo.rawContent,
 				resourceLines: mdItemMemo.resourceLines,
+				resources: mdItemMemo.resources,
 				tags: memoTags,
 				uid: mdItemMemo.uid,
 			};

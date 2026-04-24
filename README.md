@@ -69,7 +69,10 @@ work: Memos/Work
 projet: Memos/Projets
 идея: Memos/идея
 日記: Memos/Journal
+papala: Song Writing Projects/Lyrics & Drafts/papala/Idea Notes/
 ```
+
+Folder paths can contain spaces, mixed scripts, and as many `/`-separated levels as you want — the plugin creates the whole tree for you. Only the first `:` on a line separates the tag from the folder, so `:` is safe inside folder names too.
 
 Routing only affects **where new memos land**. Existing memos update in place wherever they currently live (see *Manual file moves*).
 
