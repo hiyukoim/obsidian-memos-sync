@@ -1,5 +1,5 @@
 // Extracts `#hashtag` tokens from memo markdown content.
-// Unicode-aware so Japanese/other-script tags like `#子育て` work.
+// Unicode-aware so Japanese/other-script tags like `#読書` work.
 const TAG_REGEX = /(?:^|\s)#([\p{L}\p{N}_\-/]+)/gu;
 
 export function extractTags(content: string): string[] {

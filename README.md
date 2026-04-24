@@ -57,9 +57,9 @@ Route new memos into different folders based on their tags. One rule per line, `
 
 ```
 work: Memos/Work
-子育て: Memos/家族
+読書: Memos/読書
 projet: Memos/Projets
-идея: Memos/Ideas
+идея: Memos/идея
 日記: Memos/Journal
 ```
 

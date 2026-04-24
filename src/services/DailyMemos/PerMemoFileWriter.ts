@@ -86,7 +86,7 @@ function formatMemoBody(
 	memoUrl?: string
 ): string {
 	const managed: string[] = [
-		`memo_id: ${item.timestamp}`,
+		`memo_id: ${item.uid || item.timestamp}`,
 		`created: ${createdISO}`,
 	];
 	if (memoUrl) managed.push(`memo_url: ${memoUrl}`);
@@ -146,7 +146,12 @@ export class PerMemoFileWriter {
 			: undefined;
 
 		const index = await this.buildIndex();
-		const existingPath = index.get(String(item.timestamp));
+		// Prefer uid lookup (new memo_id format) for already-migrated files; fall
+		// back to timestamp (legacy format) so old files still match in place.
+		const memoIdKey = item.uid || item.timestamp;
+		const existingPath =
+			(item.uid && index.get(item.uid)) ||
+			index.get(String(item.timestamp));
 
 		let targetPath: string;
 
@@ -155,7 +160,12 @@ export class PerMemoFileWriter {
 			// new memos, so the user is free to reorganise files after sync.
 			targetPath = existingPath;
 		} else {
-			const slot = await this.findOpenSlot(folder, base, anchor);
+			const slot = await this.findOpenSlot(
+				folder,
+				base,
+				anchor,
+				String(memoIdKey)
+			);
 			if (!slot) {
 				log.warn(
 					`Per-memo: exhausted collision slots for ${base} in ${folder}, skipping`
@@ -176,25 +186,52 @@ export class PerMemoFileWriter {
 
 		const body = formatMemoBody(item, createdISO, preservedFmLines, memoUrl);
 		await this.app.vault.adapter.write(targetPath, body);
-		index.set(String(item.timestamp), targetPath);
+		// Index by the memo_id we just wrote so subsequent same-sync lookups find it.
+		index.set(String(memoIdKey), targetPath);
 		log.debug(
 			`Per-memo: wrote ${targetPath} (${preservedFmLines.length} user fm lines preserved)`
 		);
 	};
 
-	// Returns a path in `folder` that is either free or already holds this memo's anchor.
-	// null if all 100 slots are taken by different memos.
+	// Returns a path in `folder` that is either free or already holds this memo.
+	// "Holds this memo" means: file's frontmatter `memo_id` equals the expected
+	// one, OR (legacy fallback for files written before the memo_id was managed)
+	// the body contains the timestamp anchor AND no memo_id is present.
+	// Two memos created in the same minute that share a base filename get
+	// distinct suffixes (`-01`, `-02`, …) iff their memo_ids differ — which is
+	// the case for v0.22+ uids even when the underlying timestamp collides.
+	// Returns null if all 100 slots are taken by *other* memos.
 	private findOpenSlot = async (
 		folder: string,
 		base: string,
-		anchor: string
+		anchor: string,
+		expectedMemoId: string
 	): Promise<string | null> => {
 		for (let i = 0; i <= 99; i++) {
 			const suffix = i === 0 ? "" : `-${String(i).padStart(2, "0")}`;
 			const path = normalizePath(`${folder}/${base}${suffix}.md`);
 			if (!(await this.app.vault.adapter.exists(path))) return path;
 			const current = await this.app.vault.adapter.read(path);
-			if (current.includes(anchor)) return path;
+			const { fmLines } = splitFrontmatter(current);
+			const existingMemoId = fmLines
+				.map((line) => {
+					const m = line.match(/^memo_id:\s*(.+?)\s*$/);
+					return m ? m[1] : null;
+				})
+				.find((v) => v != null);
+			if (existingMemoId) {
+				// Frontmatter memo_id is authoritative — exact match means ours.
+				if (existingMemoId === expectedMemoId) return path;
+				continue; // collision: same minute slot, different memo
+			}
+			// Legacy file with no managed memo_id: fall back to anchor heuristic
+			// only when the caller's identity is the timestamp itself (no uid).
+			if (
+				expectedMemoId === anchor.slice(1) &&
+				current.includes(anchor)
+			) {
+				return path;
+			}
 		}
 		return null;
 	};

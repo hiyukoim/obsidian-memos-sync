@@ -23,3 +23,6 @@ data.json
 
 # local
 /http
+
+# logic-tests build cache
+scripts/.tmp

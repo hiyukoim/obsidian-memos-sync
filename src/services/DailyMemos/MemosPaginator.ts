@@ -85,7 +85,13 @@ function transformAPIToMdItemMemo(param: APIMemo): MdItemMemo {
 		targetFirstLine = `- ${time} ${firstLine.replace(/^- /, "")}`;
 	}
 
-	targetFirstLine += ` #daily-record ^${timestamp}`;
+	// Block anchor identity. Two memos created in the same second would otherwise
+	// collide on `^<ts>` — same anchor in one daily note is illegal in Obsidian
+	// (only the first is addressable) and the parser dedupes by ts. Suffix with
+	// uid when available; legacy `^<ts>` records keep working via the parser's
+	// optional-suffix regex and one-shot legacy cleanup on migration.
+	const blockAnchor = uid ? `^${timestamp}-${uid}` : `^${timestamp}`;
+	targetFirstLine += ` #daily-record ${blockAnchor}`;
 
 	const targetOtherLine = otherLine?.length //剩余行
 		? "\n" +
@@ -116,10 +122,14 @@ function transformAPIToMdItemMemo(param: APIMemo): MdItemMemo {
 	};
 }
 
-// Observer invoked for every memo that passes the include/exclude tag filter.
-// Receives the memo's timestamp (same string used as `memo_id` in per-memo-file
-// frontmatter). Used by force-sync orphan detection to build the "seen" set.
-export type OnMemoSeen = (timestamp: string) => void;
+// Observer invoked for every memo found on the server, BEFORE include/exclude
+// tag filtering. Receives memo identity strings — emitted as both the timestamp
+// AND the server uid (when available) so orphan detection's "seen" set matches
+// files written by older versions (memo_id = timestamp) and newer versions
+// (memo_id = uid). Firing before the tag filter is critical: a memo that exists
+// on the server but is filtered out of the current sync must not be mistaken
+// for an orphan and trashed.
+export type OnMemoSeen = (id: string) => void;
 
 export type MemosPaginator = {
 	foreach: (
@@ -165,8 +175,15 @@ export class MemosPaginator0191 {
 	) => {
 		this.offset = 0; // iterate from newest, reset offset
 		while (true) {
-			const memos =
-				(await this.client.listMemos(this.limit, this.offset)) || [];
+			const memos = await this.client.listMemos(this.limit, this.offset);
+			if (memos == null) {
+				// API failure (not legit-empty — legit-empty returns []). Throw so the
+				// caller surfaces the error and skips advancing lastTime; next sync
+				// retries from the same checkpoint.
+				throw new Error(
+					"Memos API (v0.19.1) returned no response — check server URL / token / connectivity"
+				);
+			}
 
 			const mostRecentRecordTimeStamp = memos[0]?.createdAt
 				? window.moment(memos[0]?.createdAt).unix()
@@ -216,11 +233,6 @@ export class MemosPaginator0191 {
 				continue;
 			}
 
-			const memoTags = extractTags(memo.content ?? "");
-			if (!shouldIncludeByTags(memoTags, this.includeTags, this.excludeTags)) {
-				continue;
-			}
-
 			const { createdTs, createdAt } = memo;
 			const timestampInput = createdAt
 				? window.moment(createdAt).unix()
@@ -232,13 +244,23 @@ export class MemosPaginator0191 {
 				resources: memo.resourceList,
 			});
 
+			// Emit BEFORE tag filter — orphan detection must reflect server
+			// truth, not the current filter's output. Emit both forms so old
+			// files (memo_id = timestamp) and new files (memo_id = uid) match.
 			onMemoSeen?.(mdItemMemo.timestamp);
+			if (mdItemMemo.uid) onMemoSeen?.(mdItemMemo.uid);
+
+			const memoTags = extractTags(memo.content ?? "");
+			if (!shouldIncludeByTags(memoTags, this.includeTags, this.excludeTags)) {
+				continue;
+			}
 
 			if (!dailyMemosByDay[mdItemMemo.date]) {
 				dailyMemosByDay[mdItemMemo.date] = {};
 			}
 
-			dailyMemosByDay[mdItemMemo.date][mdItemMemo.timestamp] = {
+			const dictKey = mdItemMemo.uid || mdItemMemo.timestamp;
+			dailyMemosByDay[mdItemMemo.date][dictKey] = {
 				timestamp: mdItemMemo.timestamp,
 				rendered: mdItemMemo.rendered,
 				rawContent: mdItemMemo.rawContent,
@@ -302,9 +324,11 @@ export class MemosPaginator0220 {
 				`resp for pageToken ${this.pageToken}: ${JSON.stringify(resp)}`
 			);
 			if (!resp) {
-				log.debug("No new daily memos found.");
-				this.lastTime = Date.now().toString();
-				return this.lastTime;
+				// API failure — throw so the caller surfaces the error and skips
+				// advancing lastTime; next sync retries from the same checkpoint.
+				throw new Error(
+					"Memos API (v0.22+) returned no response — check server URL / token / connectivity"
+				);
 			}
 			const { memos, nextPageToken } = resp;
 
@@ -356,11 +380,6 @@ export class MemosPaginator0220 {
 				continue;
 			}
 
-			const memoTags = extractTags(memo.content ?? "");
-			if (!shouldIncludeByTags(memoTags, this.includeTags, this.excludeTags)) {
-				continue;
-			}
-
 			const resources = memo.resources?.map(
 				convert0220ResourceToAPIResource
 			);
@@ -372,13 +391,23 @@ export class MemosPaginator0220 {
 				uid: extractMemoUid(memo.name),
 			});
 
+			// Emit BEFORE tag filter — orphan detection must reflect server
+			// truth, not the current filter's output. Emit both forms so old
+			// files (memo_id = timestamp) and new files (memo_id = uid) match.
 			onMemoSeen?.(mdItemMemo.timestamp);
+			if (mdItemMemo.uid) onMemoSeen?.(mdItemMemo.uid);
+
+			const memoTags = extractTags(memo.content ?? "");
+			if (!shouldIncludeByTags(memoTags, this.includeTags, this.excludeTags)) {
+				continue;
+			}
 
 			if (!dailyMemosByDay[mdItemMemo.date]) {
 				dailyMemosByDay[mdItemMemo.date] = {};
 			}
 
-			dailyMemosByDay[mdItemMemo.date][mdItemMemo.timestamp] = {
+			const dictKey = mdItemMemo.uid || mdItemMemo.timestamp;
+			dailyMemosByDay[mdItemMemo.date][dictKey] = {
 				timestamp: mdItemMemo.timestamp,
 				rendered: mdItemMemo.rendered,
 				rawContent: mdItemMemo.rawContent,
@@ -488,12 +517,18 @@ export class MemosPaginator0261 {
 				log.error(
 					`listMemosREST: unexpected response — status=${res.status} content-type=${contentType} url=${url} body=${bodySnippet}`
 				);
-				return null;
+				// Throw so the caller surfaces the error and skips advancing
+				// lastTime; next sync retries from the same checkpoint.
+				throw new Error(
+					`Memos REST API returned status ${res.status} (content-type: ${contentType || "none"})`
+				);
 			}
 			return res.json;
 		} catch (error) {
 			log.error(`Failed to list memos via REST: ${error} url=${url}`);
-			return null;
+			throw error instanceof Error
+				? error
+				: new Error(`Failed to list memos via REST: ${String(error)}`);
 		}
 	};
 
@@ -501,11 +536,6 @@ export class MemosPaginator0261 {
 		const dailyMemosByDay: Record<string, Record<string, MemoItem>> = {};
 		for (const memo of memos) {
 			if (!memo.content && !memo.attachments?.length) {
-				continue;
-			}
-
-			const memoTags = extractTags(memo.content ?? "");
-			if (!shouldIncludeByTags(memoTags, this.includeTags, this.excludeTags)) {
 				continue;
 			}
 
@@ -520,12 +550,22 @@ export class MemosPaginator0261 {
 				uid: extractMemoUid(memo.name),
 			});
 
+			// Emit BEFORE tag filter — orphan detection must reflect server
+			// truth, not the current filter's output. Emit both forms so old
+			// files (memo_id = timestamp) and new files (memo_id = uid) match.
 			onMemoSeen?.(mdItemMemo.timestamp);
+			if (mdItemMemo.uid) onMemoSeen?.(mdItemMemo.uid);
+
+			const memoTags = extractTags(memo.content ?? "");
+			if (!shouldIncludeByTags(memoTags, this.includeTags, this.excludeTags)) {
+				continue;
+			}
 
 			if (!dailyMemosByDay[mdItemMemo.date]) {
 				dailyMemosByDay[mdItemMemo.date] = {};
 			}
-			dailyMemosByDay[mdItemMemo.date][mdItemMemo.timestamp] = {
+			const dictKey = mdItemMemo.uid || mdItemMemo.timestamp;
+			dailyMemosByDay[mdItemMemo.date][dictKey] = {
 				timestamp: mdItemMemo.timestamp,
 				rendered: mdItemMemo.rendered,
 				rawContent: mdItemMemo.rawContent,

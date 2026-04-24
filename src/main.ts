@@ -67,9 +67,29 @@ export default class MemosSyncPlugin extends Plugin {
 
 	async onload() {
 		await this.loadSettings();
-		await this.loadDailyMemos();
+		this.loadDailyMemos();
 
-		// This adds a settings tab so the user can configure various aspects of the plugin
+		// Register commands ONCE here, not in loadDailyMemos. saveSettings()
+		// re-runs loadDailyMemos to pick up new settings; re-adding commands
+		// each time leaks state (Obsidian dedupes by id but the closures over
+		// the previous DailyMemos instance pile up). Lambdas indirect through
+		// this.dailyMemos so the latest instance always wins.
+		this.addCommand({
+			id: "memos-sync-daily-memos",
+			name: "Sync memos",
+			callback: () => this.dailyMemos.sync(),
+		});
+		this.addCommand({
+			id: "memos-force-sync-daily-memos",
+			name: "Force sync memos",
+			callback: () => this.dailyMemos.forceSync(),
+		});
+		this.addCommand({
+			id: "memos-sync-force-current-daily-memos",
+			name: "Force sync today's memos",
+			callback: () => this.dailyMemos.syncForCurrentFile(),
+		});
+
 		this.addSettingTab(new MemosSyncSettingTab(this.app, this));
 	}
 
@@ -88,27 +108,8 @@ export default class MemosSyncPlugin extends Plugin {
 		this.loadDailyMemos();
 	};
 
-	loadDailyMemos = async () => {
+	loadDailyMemos = () => {
 		this.dailyMemos = new DailyMemos(this.app, this.settings);
-		this.addCommand({
-			id: "memos-sync-daily-memos",
-			name: "Sync memos",
-			callback: this.dailyMemos.sync,
-		});
-		this.addCommand({
-			id: "memos-force-sync-daily-memos",
-			name: "Force sync memos",
-			callback: this.dailyMemos.forceSync,
-		});
-		this.addCommand({
-			id: "memos-sync-force-current-daily-memos",
-			name: "Force sync today's memos",
-			callback: this.dailyMemos.syncForCurrentFile,
-		});
-		// timeout
-		// interval
-		// for sync
-		// notice to clear on unload
 	};
 }
 
@@ -218,7 +219,7 @@ class MemosSyncSettingTab extends PluginSettingTab {
 				)
 				.addTextArea((textarea) => {
 					textarea.setPlaceholder(
-						"work: Memos/Work\n子育て: Memos/家族\nprojet: Memos/Projets\nидея: Memos/Ideas\n日記: Memos/Journal",
+						"work: Memos/Work\n読書: Memos/読書\nprojet: Memos/Projets\nидея: Memos/идея\n日記: Memos/Journal",
 					);
 					textarea.setValue(
 						stringifyTagFolderRules(
@@ -321,7 +322,7 @@ class MemosSyncSettingTab extends PluginSettingTab {
 				"Comma-separated list. Only sync memos that have at least one of these tags. Leading # is optional, matching is case-insensitive. Leave empty to sync all.",
 			)
 			.addText((textfield) => {
-				textfield.setPlaceholder("e.g. obsidian, work, 子育て");
+				textfield.setPlaceholder("e.g. obsidian, work, 読書");
 				textfield.setValue(this.plugin.settings.includeTags.join(", "));
 				textfield.onChange((value) => {
 					this.saveSettings({

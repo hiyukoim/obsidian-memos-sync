@@ -45,6 +45,9 @@ export class DailyMemos {
 	private memosFactory: MemosAbstractFactory;
 	private memosPaginator: MemosPaginator;
 	private memosResourceFetcher: MemosResourceFetcher;
+	// Reentrancy guard. Sync entry points share localStorage[lastTime] and write
+	// to the same files; concurrent runs would race and double-write.
+	private syncing = false;
 
 	constructor(app: App, settings: MemosSyncPluginSettings) {
 		if (!settings.memosAPIURL) {
@@ -70,11 +73,24 @@ export class DailyMemos {
 	 * After syncing, save the lastTime to localStorage, and reload the memosPaginator.
 	 */
 	forceSync = async () => {
-		log.info("Force syncing daily memos...");
-		const forcePaginator = this.memosFactory.createMemosPaginator("");
-		this.downloadResource();
-		await this.insertDailyMemos(forcePaginator, /* collectSeen */ true);
-		this.memosPaginator = forcePaginator;
+		if (this.syncing) {
+			new Notice("Memos sync already in progress");
+			return;
+		}
+		this.syncing = true;
+		try {
+			log.info("Force syncing daily memos...");
+			const forcePaginator = this.memosFactory.createMemosPaginator("");
+			await this.downloadResource();
+			await this.insertDailyMemos(forcePaginator, /* collectSeen */ true);
+			this.memosPaginator = forcePaginator;
+		} catch (e) {
+			const msg = e instanceof Error ? e.message : String(e);
+			new Notice(`Memos sync failed: ${msg}`);
+			log.error(`Force sync failed: ${msg}`);
+		} finally {
+			this.syncing = false;
+		}
 	};
 
 	/**
@@ -82,9 +98,22 @@ export class DailyMemos {
 	 * After syncing, save the lastTime to localStorage.
 	 */
 	sync = async () => {
-		log.info("Syncing daily memos...");
-		this.downloadResource();
-		this.insertDailyMemos(this.memosPaginator);
+		if (this.syncing) {
+			new Notice("Memos sync already in progress");
+			return;
+		}
+		this.syncing = true;
+		try {
+			log.info("Syncing daily memos...");
+			await this.downloadResource();
+			await this.insertDailyMemos(this.memosPaginator);
+		} catch (e) {
+			const msg = e instanceof Error ? e.message : String(e);
+			new Notice(`Memos sync failed: ${msg}`);
+			log.error(`Sync failed: ${msg}`);
+		} finally {
+			this.syncing = false;
+		}
 	};
 
 	/**
@@ -92,6 +121,10 @@ export class DailyMemos {
 	 * If the current file is not a daily note, do nothing.
 	 */
 	syncForCurrentFile = async () => {
+		if (this.syncing) {
+			new Notice("Memos sync already in progress");
+			return;
+		}
 		const view = this.app.workspace.getActiveViewOfType(MarkdownView);
 		if (!view) {
 			log.debug("No active view found.");
@@ -115,8 +148,17 @@ export class DailyMemos {
 				(date) => date === currentDate,
 			);
 
-		this.downloadResource();
-		this.insertDailyMemos(currentMomentMmemosPaginator);
+		this.syncing = true;
+		try {
+			await this.downloadResource();
+			await this.insertDailyMemos(currentMomentMmemosPaginator);
+		} catch (e) {
+			const msg = e instanceof Error ? e.message : String(e);
+			new Notice(`Memos sync failed: ${msg}`);
+			log.error(`Sync (current file) failed: ${msg}`);
+		} finally {
+			this.syncing = false;
+		}
 	};
 
 	/**
